@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: "7 * * * *"   # hourly, at 7 minutes past. Change to "7 11 * * *" for daily (11:07 UTC = 4:07am Vancouver).
   workflow_dispatch: {}    # "Run workflow" button for an on-demand refresh
+  push:                    # also runs when the sync code itself changes
+    branches: [main]
+    paths: ["sync/**", ".github/workflows/sync.yml"]
 
 concurrency:
   group: jotform-sync
