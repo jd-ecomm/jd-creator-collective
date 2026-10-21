@@ -63,6 +63,8 @@ let TEAM = [];         // team emails
 let SIGNED = {};       // storage path -> signed url
 let LAST_SYNC = null;
 
+// fast photo version (sm card thumbnail or lg viewer size) when the sync has made one, the original otherwise
+function vurl(a, p, size) { if (!p) return null; const v = (a.variants || {})[p]; if (v && v[size] && SIGNED[v[size]]) return SIGNED[v[size]]; return SIGNED[p] || null; }
 function toCreator(a) {
   const name = a.full_name || 'Unnamed applicant';
   const prov = provCode(a.province);
@@ -73,15 +75,15 @@ function toCreator(a) {
   const previews = Array.isArray(a.previews) ? a.previews : [];
   const posts = (a.post_urls || []).map((u, i) => {
     const pv = previews.find((p) => p.url === u) || {};
-    return { url: u, platform: pv.platform || 'Post', caption: pv.title || 'Post ' + (i + 1), author: pv.author, thumb: pv.thumb_path ? SIGNED[pv.thumb_path] : null, embed: pv.embed_url || null, bg: postBg(i) };
+    return { url: u, platform: pv.platform || 'Post', caption: pv.title || 'Post ' + (i + 1), author: pv.author, thumb: pv.thumb_path ? vurl(a, pv.thumb_path, 'sm') : null, embed: pv.embed_url || null, bg: postBg(i) };
   });
   const tt = a.tiktok_followers, ig = a.instagram_followers, yt = a.youtube_subscribers;
   const handle = handleOf(a.tiktok_url, 'TikTok') || handleOf(a.instagram_url, 'Instagram') || handleOf(a.youtube_url, 'YouTube') || norm(name).replace(/[^a-z]+/g, '.');
   return {
     id: a.submission_id, raw: a, name, first: name.split(' ')[0], city: a.city || 'Unknown city', prov, provName: PROV[prov] || a.province || '', metro, langs,
     handle, tt, ig, yt, reach: (tt || 0) + (ig || 0) + (yt || 0), lat: a.lat, lng: a.lng, near,
-    head: a.headshot_path && SIGNED[a.headshot_path] ? SIGNED[a.headshot_path] : initialsSvg(name), hasHead: !!a.headshot_path,
-    setups: (a.setup_paths || []).filter((p) => SIGNED[p]).map((p, i) => ({ src: SIGNED[p], label: 'Filming setup ' + (i + 1) })),
+    head: vurl(a, a.headshot_path, 'sm') || initialsSvg(name), headLg: vurl(a, a.headshot_path, 'lg') || initialsSvg(name), hasHead: !!a.headshot_path,
+    setups: (a.setup_paths || []).map((p, i) => ({ src: vurl(a, p, 'sm'), big: vurl(a, p, 'lg'), label: 'Filming setup ' + (i + 1) })).filter((x) => x.src),
     posts, previews,
     equipment: a.equipment || [], software: a.editing_software || [], style: a.speaking_style || 'Not given', can: a.can_do || [], lanes: a.content_lanes || [], brands: a.brands || [],
     niche: a.niche || '', apart: a.sets_apart || '', more: [a.tell_more, a.anything_else].filter(Boolean).join('\n\n'),
@@ -103,7 +105,9 @@ async function signPaths(paths) {
 async function q(p) { const { data, error } = await p; if (error) throw error; return data; }
 async function loadApplications() {
   const apps = await q(sb.from('app_applications').select('*').order('submitted_at', { ascending: false }));
-  const paths = []; apps.forEach((a) => { paths.push(a.headshot_path, ...(a.setup_paths || [])); (a.previews || []).forEach((p) => paths.push(p.thumb_path)); });
+  const paths = [];
+  const add = (a, p) => { if (!p) return; const v = (a.variants || {})[p]; if (v && v.sm) paths.push(v.sm, v.lg); else paths.push(p); };
+  apps.forEach((a) => { add(a, a.headshot_path); (a.setup_paths || []).forEach((p) => add(a, p)); (a.previews || []).forEach((p) => add(a, p.thumb_path)); });
   await signPaths(paths);
   C = apps.map(toCreator);
   C.forEach((c) => { if (!CRM[c.id]) CRM[c.id] = blankCRM(); });
@@ -141,7 +145,7 @@ const nd = (c) => c.near.length ? c.near[0].d : Infinity;
 const storeBand = (c) => { const d = nd(c); return !isFinite(d) ? 'Location unknown' : d <= 10 ? 'Within 10 km' : d <= 25 ? '10 to 25 km' : d <= 50 ? '25 to 50 km' : 'Over 50 km'; };
 const storeLabel = (d) => !isFinite(d) ? 'Location unknown' : d <= 10 ? 'Easy in-store shoot' : d <= 25 ? 'In-store shoot ready' : d <= 50 ? 'Short drive' : d <= 150 ? 'Day trip' : 'Travel needed';
 const bilingual = (c) => c.langs.includes('English') && c.langs.includes('French');
-const media = (c) => [{ kind: 'img', src: c.head, label: 'Headshot' }, ...c.setups.map((s) => ({ kind: 'img', src: s.src, label: s.label })), ...c.posts.map((p, i) => ({ kind: 'post', post: p, label: 'Post ' + (i + 1) + ' · ' + p.platform }))];
+const media = (c) => [{ kind: 'img', src: c.headLg, thumb: c.head, label: 'Headshot' }, ...c.setups.map((s) => ({ kind: 'img', src: s.big || s.src, thumb: s.src, label: s.label })), ...c.posts.map((p, i) => ({ kind: 'post', post: p, label: 'Post ' + (i + 1) + ' · ' + p.platform }))];
 const daysAgo = (c) => Math.max(0, Math.floor((TODAY - c.applied) / DAY));
 const stageDays = (id) => Math.max(0, Math.floor((TODAY - new Date(CRM[id].stageSince)) / DAY));
 function teamScore(id) { const s = Object.values(CRM[id].scores); let t = 0, n = 0; s.forEach((o) => CRIT.forEach(([k]) => { if (o[k]) { t += o[k]; n++; } })); return n ? t / n : null; }
@@ -266,21 +270,23 @@ function renderMain() {
   $('sort').value = S.sort;
   $('layout').classList.toggle('wide', S.view === 'boards');
   const L = results();
+  const sig = JSON.stringify([S.view, S.q, S.sort, S.f, S.fn ? S.fnLabel : '', S.board]); if (sig !== lastSig) { S.limit = PAGE; lastSig = sig; }
   if (S.view === 'board') { $('main').innerHTML = boardHTML(L); return; }
   if (S.view === 'map') { $('main').innerHTML = mapHTML(L); drawMap(L); return; }
   if (S.view === 'boards') { $('main').innerHTML = S.board ? boardDetailHTML() : boardsHTML(); return; }
   if (S.view === 'insights') { $('main').innerHTML = insightsHTML(L); return; }
   if (!L.length) { $('main').innerHTML = emptyState(); return; }
   $('main').innerHTML = S.view === 'table' ? tableHTML(L) : wallHTML(L);
+  observeMore(L, S.view === 'table' ? 'table' : 'wall');
 }
 function statBox(k, v, top) { return `<div class="stat${v == null ? ' na' : ''}${top ? ' top' : ''}"><div class="k">${k}</div><div class="v num">${fmt(v)}</div></div>`; }
 function cardHTML(c, extra) {
   const cr = CRM[c.id]; const m = media(c).filter((x) => x.kind === 'img'); const top = maxAud(c); const ts = teamScore(c.id);
-  const thumbs = c.setups.length ? c.setups.slice(0, 3).map((s, i) => `<button type="button" data-act="lb" data-id="${c.id}" data-i="${i + 1}" aria-label="View ${esc(s.label)}"><img src="${s.src}" alt="" loading="lazy"></button>`).join('') : `<span class="miss" style="grid-column:span 3">No setup photos uploaded</span>`;
+  const thumbs = c.setups.length ? c.setups.slice(0, 3).map((s, i) => `<button type="button" data-act="lb" data-id="${c.id}" data-i="${i + 1}" aria-label="View ${esc(s.label)}"><img src="${s.src}" alt="" loading="lazy" decoding="async"></button>`).join('') : `<span class="miss" style="grid-column:span 3">No setup photos uploaded</span>`;
   return `<article class="card${S.cmp.includes(c.id) ? ' cmp-on' : ''}" data-id="${c.id}">
     <div class="cm" data-act="open" data-id="${c.id}" data-scrub="${c.id}">
       <div class="scrub">${m.map((x, i) => `<span class="${i ? '' : 'on'}"></span>`).join('')}</div>
-      <img src="${c.head}" alt="${esc(c.name)}" loading="lazy">
+      <img src="${c.head}" alt="${esc(c.name)}" loading="lazy" decoding="async">
       ${stPill(cr.status)}
       <button type="button" class="star${cr.fav ? ' on' : ''}" data-act="fav" data-id="${c.id}" aria-label="${cr.fav ? 'Remove from' : 'Add to'} favourites">${STAR(cr.fav)}</button>
       ${ts != null ? `<span class="scorepill num" title="Team score">${sc1(ts)}</span>` : ''}
@@ -296,7 +302,20 @@ function cardHTML(c, extra) {
       <div class="cfoot"><span>Applied ${daysAgo(c) === 0 ? 'today' : daysAgo(c) + 'd ago'}</span><label class="cmpbox"><input type="checkbox" data-act="cmp" data-id="${c.id}" ${S.cmp.includes(c.id) ? 'checked' : ''}> Compare</label></div>
     </div></article>`;
 }
-function wallHTML(L) { return `<div class="wall">${L.map((c) => cardHTML(c)).join('')}</div>`; }
+const PAGE = 48; S.limit = PAGE; let lastSig = '', moreObs = null;
+const moreHTML = (L) => (L.length > S.limit ? `<div id="more" class="muted" style="text-align:center;padding:24px">Loading more creators</div>` : '');
+function wallHTML(L) { return `<div class="wall" id="wall">${L.slice(0, S.limit).map((c) => cardHTML(c)).join('')}</div>${moreHTML(L)}`; }
+// load the next batch of cards or rows as you scroll near the bottom
+function observeMore(L, kind) {
+  if (moreObs) moreObs.disconnect(); const el = $('more'); if (!el || !('IntersectionObserver' in window)) return;
+  moreObs = new IntersectionObserver((es) => {
+    if (!es.some((e) => e.isIntersecting)) return;
+    const from = S.limit; S.limit += PAGE; const add = L.slice(from, S.limit);
+    if (kind === 'table') $('tbody').insertAdjacentHTML('beforeend', add.map(rowHTML).join('')); else $('wall').insertAdjacentHTML('beforeend', add.map((c) => cardHTML(c)).join(''));
+    if (S.limit >= L.length) { el.remove(); moreObs.disconnect(); }
+  }, { rootMargin: '900px' });
+  moreObs.observe(el);
+}
 function boardHTML(L) {
   return `<div class="board">${STATUSES.map((s) => { const items = L.filter((c) => CRM[c.id].status === s);
     return `<section class="col" data-drop="${s}"><div class="colh"><span class="t"><span class="dot" style="background:${STCOL[s]}"></span>${s}</span><span class="c num">${items.length}</span></div>
@@ -305,10 +324,11 @@ function boardHTML(L) {
 }
 function tableHTML(L) {
   const sb2 = (k, l) => `<button type="button" data-act="sortby" data-k="${k}" aria-pressed="${S.sort === k}">${l}</button>`;
-  return `<div class="tw"><table><thead><tr><th></th><th></th><th>${sb2('name', 'Creator')}</th><th>Location</th><th>${sb2('near', 'Closest JD store')}</th><th>Lang</th><th style="text-align:right">${sb2('tt', 'TikTok')}</th><th style="text-align:right">${sb2('ig', 'Instagram')}</th><th style="text-align:right">${sb2('yt', 'YouTube')}</th><th style="text-align:right">${sb2('score', 'Score')}</th><th>Status</th><th>Owner</th><th>Tags</th><th>${sb2('new', 'Applied')}</th></tr></thead><tbody>
-  ${L.map((c) => { const cr = CRM[c.id]; return `<tr data-act="open" data-id="${c.id}"><td><button type="button" class="tstar${cr.fav ? ' on' : ''}" data-act="fav" data-id="${c.id}" aria-label="Favourite">${STAR(cr.fav)}</button></td><td><img src="${c.head}" alt=""></td><td><div class="n">${esc(c.name)}</div><div style="color:var(--fg3);font-size:11px">@${esc(c.handle)}</div></td><td>${esc(c.city)}${c.prov ? ', ' + c.prov : ''}</td><td>${c.near[0] ? `<div style="font-weight:600">${esc(c.near[0].s.name)}</div><div style="color:${nd(c) <= 25 ? 'var(--lime)' : 'var(--fg3)'};font-size:11px">${kmTxt(nd(c))}</div>` : '<span class="muted">Unknown</span>'}</td><td>${c.langs.map((l) => (l === 'French' ? 'FR' : l === 'English' ? 'EN' : '')).filter(Boolean).join(' / ')}</td><td class="r">${fmt(c.tt)}</td><td class="r">${fmt(c.ig)}</td><td class="r">${fmt(c.yt)}</td><td class="r">${sc1(teamScore(c.id))}</td><td>${stInline(cr.status)}</td><td>${esc(dispName(cr.owner))}</td><td><div class="tags">${cr.tags.map((t) => `<span class="tag team">${esc(t)}</span>`).join('')}</div></td><td class="num">${fmtDate(c.applied)}</td></tr>`; }).join('')}
-  </tbody></table></div>`;
+  return `<div class="tw"><table><thead><tr><th></th><th></th><th>${sb2('name', 'Creator')}</th><th>Location</th><th>${sb2('near', 'Closest JD store')}</th><th>Lang</th><th style="text-align:right">${sb2('tt', 'TikTok')}</th><th style="text-align:right">${sb2('ig', 'Instagram')}</th><th style="text-align:right">${sb2('yt', 'YouTube')}</th><th style="text-align:right">${sb2('score', 'Score')}</th><th>Status</th><th>Owner</th><th>Tags</th><th>${sb2('new', 'Applied')}</th></tr></thead><tbody id="tbody">
+  ${L.slice(0, S.limit).map(rowHTML).join('')}
+  </tbody></table></div>${moreHTML(L)}`;
 }
+function rowHTML(c) { const cr = CRM[c.id]; return `<tr data-act="open" data-id="${c.id}"><td><button type="button" class="tstar${cr.fav ? ' on' : ''}" data-act="fav" data-id="${c.id}" aria-label="Favourite">${STAR(cr.fav)}</button></td><td><img src="${c.head}" alt=""></td><td><div class="n">${esc(c.name)}</div><div style="color:var(--fg3);font-size:11px">@${esc(c.handle)}</div></td><td>${esc(c.city)}${c.prov ? ', ' + c.prov : ''}</td><td>${c.near[0] ? `<div style="font-weight:600">${esc(c.near[0].s.name)}</div><div style="color:${nd(c) <= 25 ? 'var(--lime)' : 'var(--fg3)'};font-size:11px">${kmTxt(nd(c))}</div>` : '<span class="muted">Unknown</span>'}</td><td>${c.langs.map((l) => (l === 'French' ? 'FR' : l === 'English' ? 'EN' : '')).filter(Boolean).join(' / ')}</td><td class="r">${fmt(c.tt)}</td><td class="r">${fmt(c.ig)}</td><td class="r">${fmt(c.yt)}</td><td class="r">${sc1(teamScore(c.id))}</td><td>${stInline(cr.status)}</td><td>${esc(dispName(cr.owner))}</td><td><div class="tags">${cr.tags.map((t) => `<span class="tag team">${esc(t)}</span>`).join('')}</div></td><td class="num">${fmtDate(c.applied)}</td></tr>`; }
 function renderTray() {
   const t = document.querySelector('.tray'); if (t) t.remove(); if (!S.cmp.length) return;
   const el = document.createElement('div'); el.className = 'tray';
@@ -321,10 +341,10 @@ function linkPreviews(c) {
   const out = [];
   const byUrl = (u) => c.previews.find((p) => p.url === u) || {};
   [['TikTok', c.tt, 'followers'], ['Instagram', c.ig, 'followers'], ['YouTube', c.yt, 'subscribers']].forEach(([plat, n, unit]) => {
-    const u = c.urls[plat]; if (!u) return; const pv = byUrl(u); const img = pv.thumb_path && SIGNED[pv.thumb_path] ? SIGNED[pv.thumb_path] : c.head; const isUrl = /^https?:/.test(u);
+    const u = c.urls[plat]; if (!u) return; const pv = byUrl(u); const img = (pv.thumb_path && vurl(c.raw, pv.thumb_path, 'sm')) || c.head; const isUrl = /^https?:/.test(u);
     out.push(`<a class="lp round" ${isUrl ? `href="${esc(u)}" target="_blank" rel="noopener noreferrer"` : ''}><img src="${img}" alt=""><span style="min-width:0"><span class="pt">${esc(pv.title || c.name)}${pv.author ? ' (' + esc(pv.author) + ')' : ''}</span><span class="pd">${n != null ? fmt(n) + ' ' + unit + (pv.description ? ' · ' : '') : ''}${esc((pv.description || '').slice(0, 140))}</span><span class="pu"><span class="plat">${plat}</span><span>${esc(u.replace(/^https?:\/\/(www\.)?/, ''))}</span></span></span></a>`);
   });
-  if (c.portfolio) { const pv = byUrl(c.portfolio); const img = pv.thumb_path && SIGNED[pv.thumb_path];
+  if (c.portfolio) { const pv = byUrl(c.portfolio); const img = pv.thumb_path && vurl(c.raw, pv.thumb_path, 'lg');
     out.push(`<a class="lp${img ? ' wide' : ''}" href="${esc(c.portfolio)}" target="_blank" rel="noopener noreferrer">${img ? `<img src="${img}" alt="">` : `<img src="${c.head}" alt="">`}<span class="${img ? 'lpb' : ''}" style="min-width:0"><span class="pt">${esc(pv.title || 'Portfolio or content reel')}</span><span class="pd">${esc((pv.description || '').slice(0, 160))}</span><span class="pu"><span class="plat">Website</span><span>${esc(c.portfolio.replace(/^https?:\/\/(www\.)?/, ''))}</span></span></span></a>`); }
   return out.join('') || '<div class="muted">No links shared.</div>';
 }
@@ -386,7 +406,7 @@ function drawerHTML(c) {
   <div class="dh"><div class="nav"><button type="button" class="ib" data-act="prev" aria-label="Previous creator">‹</button><button type="button" class="ib" data-act="next" aria-label="Next creator">›</button><span class="num">${idx >= 0 ? idx + 1 + ' of ' + L.length : 'Not in current filter'}</span><span class="muted">· ← → to browse · F to favourite</span></div><button type="button" class="ib" data-act="close" aria-label="Close">×</button></div>
   <div class="db">
     <div style="min-width:0">
-      <div class="media-main" data-act="lb" data-id="${c.id}" data-i="0"><img src="${c.head}" alt="${esc(c.name)} headshot"><span class="hint">${m.length} photo${m.length === 1 ? '' : 's'} and posts · click to expand</span></div>
+      <div class="media-main" data-act="lb" data-id="${c.id}" data-i="0"><img src="${c.headLg}" alt="${esc(c.name)} headshot" decoding="async"><span class="hint">${m.length} photo${m.length === 1 ? '' : 's'} and posts · click to expand</span></div>
       ${c.setups.length ? `<div class="thumbs">${c.setups.map((s, i) => `<button type="button" data-act="lb" data-id="${c.id}" data-i="${i + 1}" aria-label="${esc(s.label)}"><img src="${s.src}" alt=""></button>`).join('')}</div>` : `<div class="misscard" style="margin-top:8px">No filming setup photos uploaded. Use the "Ask for more info" template to request them.</div>`}
       <div class="sec-t">Best posts <small>Click to play</small></div>
       ${c.posts.length ? `<div class="posts">${c.posts.map((p, i) => `<button type="button" class="post" data-act="lb" data-id="${c.id}" data-i="${1 + c.setups.length + i}" aria-label="Play ${esc(p.caption)}"><span class="pg" style="background:${p.bg}"></span>${p.thumb ? `<img class="pthumb" src="${p.thumb}" alt="">` : ''}<span class="pp"><span>${PLAY}</span></span><span class="pf">${esc(p.platform)}</span><span class="pc">${esc(p.caption.slice(0, 70))}${p.author ? `<em>${esc(p.author)}</em>` : ''}</span></button>`).join('')}</div>` : '<div class="misscard">No post links shared on the application.</div>'}
@@ -460,7 +480,7 @@ function lbHTML() {
   const stage = it.kind === 'img' ? `<img src="${it.src}" alt="${esc(it.label)}">` : embedStage(it.post);
   return `<div class="lb" role="dialog" aria-modal="true" aria-label="Media viewer"><div class="lbh"><div><div class="t">${esc(c.name)}</div><div class="c num">${esc(it.label)} · ${i + 1} of ${m.length}${it.kind === 'post' ? ` · <a href="${esc(it.post.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--lime)">Open original ↗</a>` : ''}</div></div><div style="display:flex;gap:8px"><button type="button" class="btn" data-act="lbprofile">Open profile</button><button type="button" class="ib" data-act="lbclose" aria-label="Close">×</button></div></div>
   <div class="lbs">${stage}<button type="button" class="lbn p" data-act="lbprev" aria-label="Previous">‹</button><button type="button" class="lbn n" data-act="lbnext" aria-label="Next">›</button></div>
-  <div class="lbt">${m.map((x, j) => `<button type="button" class="${j === i ? 'on' : ''}" data-act="lbgo" data-i="${j}" aria-label="${esc(x.label)}">${x.kind === 'img' ? `<img src="${x.src}" alt="">` : x.post.thumb ? `<img src="${x.post.thumb}" alt="">` : `<span style="display:block;width:100%;height:100%;background:${x.post.bg}"></span>`}</button>`).join('')}</div></div>`;
+  <div class="lbt">${m.map((x, j) => `<button type="button" class="${j === i ? 'on' : ''}" data-act="lbgo" data-i="${j}" aria-label="${esc(x.label)}">${x.kind === 'img' ? `<img src="${x.thumb || x.src}" alt="" loading="lazy">` : x.post.thumb ? `<img src="${x.post.thumb}" alt="" loading="lazy">` : `<span style="display:block;width:100%;height:100%;background:${x.post.bg}"></span>`}</button>`).join('')}</div></div>`;
 }
 
 /* ---------------------------------------------------------------- compare */
@@ -495,7 +515,7 @@ function castHTML() {
   const m = media(c); const mi = Math.min(K.mi, m.length - 1); const it = m[mi]; const cr = CRM[c.id]; const mine = cr.scores[ME] || {};
   const big = it.kind === 'img' ? `<img src="${it.src}" alt="">` : embedStage(it.post);
   return `<div class="cast" role="dialog" aria-modal="true" aria-label="Casting mode">${head}
-  <div class="cast-b"><div class="cast-card" style="min-width:0"><div class="cast-media"><div class="mm">${big}</div><div class="side">${m.slice(0, 5).map((x, j) => `<button type="button" class="${j === mi ? 'on' : ''}" data-act="castmi" data-i="${j}" aria-label="${esc(x.label)}">${x.kind === 'img' ? `<img src="${x.src}" alt="">` : x.post.thumb ? `<img src="${x.post.thumb}" alt="">` : `<span style="background:${x.post.bg}"></span>`}</button>`).join('')}</div></div><div class="muted" style="font-size:11px;margin-top:6px">${esc(it.label)} · press 1 to 5 to flick through media</div></div>
+  <div class="cast-b"><div class="cast-card" style="min-width:0"><div class="cast-media"><div class="mm">${big}</div><div class="side">${m.slice(0, 5).map((x, j) => `<button type="button" class="${j === mi ? 'on' : ''}" data-act="castmi" data-i="${j}" aria-label="${esc(x.label)}">${x.kind === 'img' ? `<img src="${x.thumb || x.src}" alt="">` : x.post.thumb ? `<img src="${x.post.thumb}" alt="">` : `<span style="background:${x.post.bg}"></span>`}</button>`).join('')}</div></div><div class="muted" style="font-size:11px;margin-top:6px">${esc(it.label)} · press 1 to 5 to flick through media</div></div>
   <div class="cast-card" style="min-width:0">
     <div class="pname dsp">${esc(c.name)}</div>
     <div class="ploc">${esc(c.city)}${c.provName ? ', ' + esc(c.provName) : ''} ${c.langs.map((l) => `<span class="chip">${esc(l)}</span>`).join('')} <span class="muted">· applied ${daysAgo(c)}d ago</span></div>

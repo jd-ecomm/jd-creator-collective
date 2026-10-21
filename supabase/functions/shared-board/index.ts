@@ -23,11 +23,14 @@ Deno.serve(async (req) => {
   if (error) return Response.json({ error: "could not load board" }, { status: 500, headers: cors });
   if (!data) return Response.json({ error: "This link has expired or been turned off." }, { status: 404, headers: cors });
 
+  // sign the fast photo versions when they exist, the originals otherwise
   const paths: string[] = [];
   for (const c of data.creators ?? []) {
-    if (c.headshot_path) paths.push(c.headshot_path);
-    for (const p of c.setup_paths ?? []) paths.push(p);
-    for (const pv of c.previews ?? []) if (pv.thumb_path) paths.push(pv.thumb_path);
+    const v = c.variants ?? {};
+    const add = (p: string | null) => { if (!p) return; if (v[p]?.sm) { paths.push(v[p].sm, v[p].lg); } else paths.push(p); };
+    add(c.headshot_path);
+    for (const p of c.setup_paths ?? []) add(p);
+    for (const pv of c.previews ?? []) add(pv.thumb_path);
   }
   const signed: Record<string, string> = {};
   if (paths.length) {

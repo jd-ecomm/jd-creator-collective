@@ -7,6 +7,7 @@
 // Runs in GitHub Actions. Needs: JOTFORM_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 import { createClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
+import sharp from 'sharp';
 import { mapSubmission } from './mapping.mjs';
 
 const env = (k, d) => process.env[k] || d;
@@ -66,6 +67,46 @@ async function copyFile(url, destNoExt, isJotform = true) {
   const { error } = await db.storage.from('media').upload(path, f.buf, { contentType: f.type, upsert: true });
   if (error) { console.warn('  upload failed', path, error.message); return null; }
   return path;
+}
+
+// ------------------------------------------------------------- fast photo versions
+// sm: 480x600 card thumbnail, lg: up to 1400px for the profile and viewer. Originals stay untouched.
+const T0 = Date.now();
+async function makeVariants(path) {
+  const { data, error } = await db.storage.from('media').download(path);
+  if (error || !data) return null;
+  const buf = Buffer.from(await data.arrayBuffer());
+  const stem = path.replace(/\.[^./]+$/, '');
+  try {
+    const base = sharp(buf, { failOn: 'none' }).rotate();
+    const sm = await base.clone().resize({ width: 480, height: 600, fit: 'cover', position: 'attention' }).webp({ quality: 72 }).toBuffer();
+    const lg = await base.clone().resize({ width: 1400, height: 1400, fit: 'inside', withoutEnlargement: true }).webp({ quality: 80 }).toBuffer();
+    if (!DRY) {
+      const a = await db.storage.from('media').upload(stem + '.sm.webp', sm, { contentType: 'image/webp', upsert: true });
+      const b = await db.storage.from('media').upload(stem + '.lg.webp', lg, { contentType: 'image/webp', upsert: true });
+      if (a.error || b.error) return null;
+    }
+    return { sm: stem + '.sm.webp', lg: stem + '.lg.webp' };
+  } catch (e) {
+    console.warn('  could not resize', path, e.message);
+    return { failed: true };
+  }
+}
+async function backfillVariants() {
+  const { data: rows } = await db.from('applications').select('submission_id,headshot_path,setup_paths,previews,variants');
+  let made = 0;
+  for (const r of rows || []) {
+    if (Date.now() - T0 > 15 * 60 * 1000) { console.log('Time limit reached, the next run continues the photo resizing'); break; }
+    const v = { ...(r.variants || {}) };
+    const paths = [r.headshot_path, ...(r.setup_paths || []), ...((r.previews || []).map((p) => p.thumb_path))].filter((p) => p && !v[p]);
+    if (!paths.length) continue;
+    for (let i = 0; i < paths.length; i += 4) {
+      const out = await Promise.all(paths.slice(i, i + 4).map(makeVariants));
+      out.forEach((o, j) => { if (o) { v[paths[i + j]] = o; made++; } });
+    }
+    if (!DRY) await db.from('applications').update({ variants: v }).eq('submission_id', r.submission_id);
+  }
+  if (made) console.log('Made fast versions of', made, 'photos');
 }
 
 // ------------------------------------------------------------- geocoding (OpenStreetMap, cached)
@@ -253,6 +294,7 @@ async function main() {
         await purge(id);
       }
     }
+    await backfillVariants();
     if (unmatchedAll.size) console.log('Questions not mapped to a CRM field (update sync/mapping.mjs if needed):\n - ' + [...unmatchedAll].join('\n - '));
     console.log('Done', stats);
     if (!DRY) await db.from('sync_runs').update({ ...stats, finished_at: new Date().toISOString() }).eq('id', run.id);
