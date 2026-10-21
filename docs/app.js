@@ -23,8 +23,8 @@ const METROS = [
   ['Québec City', 46.81, -71.23, 25], ['Halifax', 44.65, -63.58, 25], ['Greater Victoria', 48.45, -123.37, 20], ['Kitchener-Waterloo', 43.45, -80.49, 20],
   ['London', 42.98, -81.25, 20], ['Saskatoon', 52.13, -106.67, 20], ['Regina', 50.45, -104.61, 20]
 ];
-const STATUSES = ['New', 'Reviewed', 'Shortlisted', 'Contacted', 'Onboarded', 'Declined'];
-const STCOL = { New: 'var(--st-new)', Reviewed: 'var(--st-rev)', Shortlisted: 'var(--st-short)', Contacted: 'var(--st-con)', Onboarded: 'var(--st-on)', Declined: 'var(--st-dec)' };
+const STATUSES = ['New', 'Spotlight', 'Reviewed', 'Shortlisted', 'Contacted', 'Onboarded', 'Declined'];
+const STCOL = { New: 'var(--st-new)', Spotlight: 'var(--st-spot)', Reviewed: 'var(--st-rev)', Shortlisted: 'var(--st-short)', Contacted: 'var(--st-con)', Onboarded: 'var(--st-on)', Declined: 'var(--st-dec)' };
 const TYPES = ['Not set', 'Micro', 'Influencer', 'Employee'];
 const REMS = ['Not set', 'Gifting', 'Monthly retainer', 'Pay per package'];
 const REMS_FR = { Gifting: 'cadeaux', 'Monthly retainer': 'mandat mensuel', 'Pay per package': 'paiement par forfait', 'Not set': 'à confirmer' };
@@ -59,6 +59,7 @@ let C = [];            // creators
 let CRM = {};          // team data per creator
 let BOARDS = [];       // active boards
 let MEMBERS = new Map(); // `${board}|${sid}` -> active
+let RR = [];           // open review requests
 let TEAM = [];         // team emails
 let SIGNED = {};       // storage path -> signed url
 let LAST_SYNC = null;
@@ -121,7 +122,7 @@ async function loadApplications(force) {
 }
 async function loadAll() {
   TODAY = new Date();
-  const [state, notes, scores, boards, members, act, team, runs] = await Promise.all([
+  const [state, notes, scores, boards, members, act, team, runs, reqs] = await Promise.all([
     q(sb.from('crm_state').select('*')),
     q(sb.from('notes').select('*').order('created_at')),
     q(sb.from('scores').select('*')),
@@ -130,6 +131,7 @@ async function loadAll() {
     q(sb.from('activity').select('*').order('at', { ascending: false }).limit(5000)),
     sb.rpc('team_members').then((r) => r.data || []),
     q(sb.from('sync_runs').select('*').order('started_at', { ascending: false }).limit(1)),
+    q(sb.from('review_requests').select('*').is('done_at', null).order('created_at')),
   ]);
   CRM = {};
   state.forEach(fromState);
@@ -141,6 +143,7 @@ async function loadAll() {
   TEAM = team.map((t) => t.email).filter(Boolean);
   if (ME && !TEAM.includes(ME)) TEAM.push(ME);
   LAST_SYNC = runs[0] || null;
+  RR = reqs || [];
   await loadApplications();
 }
 function boardFrom(b) { return { id: b.id, name: b.name, desc: b.description || '', rules: b.rules || null, created_by: b.created_by, share: { on: b.share_on, token: b.share_token, expires: b.share_expires_at }, get ids() { return C.filter((c) => MEMBERS.get(b.id + '|' + c.id)).map((c) => c.id); } }; }
@@ -158,11 +161,14 @@ const stageDays = (id) => Math.max(0, Math.floor((TODAY - new Date(CRM[id].stage
 function teamScore(id) { const s = Object.values(CRM[id].scores); let t = 0, n = 0; s.forEach((o) => CRIT.forEach(([k]) => { if (o[k]) { t += o[k]; n++; } })); return n ? t / n : null; }
 function critAvg(id, k) { const v = Object.values(CRM[id].scores).map((o) => o[k]).filter(Boolean); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; }
 function isSplit(id) { const s = Object.values(CRM[id].scores); if (s.length < 2) return false; return CRIT.some(([k]) => { const v = s.map((o) => o[k]).filter(Boolean); return v.length > 1 && Math.max(...v) - Math.min(...v) >= 2; }); }
+const reqsFor = (id) => RR.filter((r) => r.submission_id === id);
+const waitingOnMe = (id) => RR.some((r) => r.submission_id === id && r.requested_for === ME);
+const shortName = (e) => (e === ME ? 'you' : dispName(e));
 function needs(c) {
   const cr = CRM[c.id], o = [];
   if (!c.ageOk) o.push('Age not confirmed');
   if (cr.status === 'New' && daysAgo(c) > 14) o.push('Waiting 14+ days');
-  if (['Reviewed', 'Shortlisted', 'Contacted'].includes(cr.status) && cr.owner === 'Unassigned') o.push('No owner');
+  if (reqsFor(c.id).some((r) => (TODAY - new Date(r.created_at)) / DAY > 3)) o.push('Review waiting 3+ days');
   if (['Reviewed', 'Shortlisted', 'Contacted'].includes(cr.status) && stageDays(c.id) > 7) o.push('Stuck 7+ days');
   if (isSplit(c.id)) o.push('Split opinion');
   return o;
@@ -175,10 +181,10 @@ const GROUPS = [
   { k: 'status', l: 'Status', open: true, opts: () => STATUSES, get: (c) => [CRM[c.id].status] },
   { k: 'gender', l: 'Gender', open: true, opts: () => uniq(C.map((c) => c.gender)).sort((a, b) => (a === 'Not given') - (b === 'Not given') || a.localeCompare(b)), get: (c) => [c.gender] },
   { k: 'age', l: 'Age', open: true, opts: () => ['18 to 20', '21 to 24', '25 to 29', '30 to 34', '35+', 'Not given'], get: (c) => [c.ageBand] },
-  { k: 'needs', l: 'Needs attention', open: false, opts: () => ['Age not confirmed', 'Waiting 14+ days', 'No owner', 'Stuck 7+ days', 'Split opinion'], get: needs },
+  { k: 'needs', l: 'Needs attention', open: false, opts: () => ['Age not confirmed', 'Waiting 14+ days', 'Review waiting 3+ days', 'Stuck 7+ days', 'Split opinion'], get: needs },
   { k: 'gaps', l: 'Left blank on the form', open: false, sub: 'Optional questions. Not counted as needing attention', opts: () => ['No setup photos', 'No post links', 'No portfolio'], get: (c) => [!c.setups.length && 'No setup photos', !c.posts.length && 'No post links', !c.portfolio && 'No portfolio'].filter(Boolean) },
   { k: 'boards', l: 'Campaign boards', open: false, opts: () => BOARDS.map((b) => b.name), get: (c) => BOARDS.filter((b) => MEMBERS.get(b.id + '|' + c.id)).map((b) => b.name) },
-  { k: 'owner', l: 'Owner', open: false, opts: () => uniq(C.map((c) => dispName(CRM[c.id].owner))), get: (c) => [dispName(CRM[c.id].owner)] },
+  { k: 'review', l: 'Review requested from', open: false, opts: () => uniq(RR.map((r) => dispName(r.requested_for))), get: (c) => reqsFor(c.id).map((r) => dispName(r.requested_for)) },
   { k: 'store', l: 'Near a JD store', sub: "Distance from the creator's city to the closest store", open: true, opts: () => ['Within 10 km', '10 to 25 km', '25 to 50 km', 'Over 50 km', 'Location unknown'], get: (c) => [storeBand(c)] },
   { k: 'nstore', l: 'Closest JD store', open: false, opts: () => uniq(C.map((c) => c.near[0] && c.near[0].s.name)), get: (c) => [c.near[0] && c.near[0].s.name].filter(Boolean) },
   { k: 'metro', l: 'Metro area', open: false, opts: () => uniq(C.map((c) => c.metro)), get: (c) => [c.metro] },
@@ -201,8 +207,9 @@ const PRESETS = [
   { k: 'all', l: 'All applicants', f: {} },
   { k: 'fav', l: 'Favourites', f: { flags: ['Favourite'] } },
   { k: 'week', l: 'New this week', f: {}, fn: weekFn },
-  { k: 'mine', l: 'Mine', f: {}, fn: (c) => CRM[c.id].owner === ME },
-  { k: 'needs', l: 'Needs attention', warn: 1, t: 'Something the team needs to act on: age not confirmed, waiting 14+ days in New, no owner or stuck 7+ days once in review, or reviewers disagree by 2+ points', f: { needs: ['Age not confirmed', 'Waiting 14+ days', 'No owner', 'Stuck 7+ days', 'Split opinion'] } },
+  { k: 'spot', l: 'Spotlight', t: 'Flagged as interesting: please review', f: { status: ['Spotlight'] } },
+  { k: 'mine', l: 'To review (me)', t: 'Creators someone has asked you to review', f: {}, fn: (c) => waitingOnMe(c.id) },
+  { k: 'needs', l: 'Needs attention', warn: 1, t: 'Something the team needs to act on: age not confirmed, waiting 14+ days in New, a review request open 3+ days, stuck 7+ days once in review, or reviewers disagree by 2+ points', f: { needs: ['Age not confirmed', 'Waiting 14+ days', 'Review waiting 3+ days', 'Stuck 7+ days', 'Split opinion'] } },
   { k: 'near', l: 'Near a JD store', t: 'City is within 25 km of a JD store', f: { store: ['Within 10 km', '10 to 25 km'] } },
   { k: 'fr', l: 'French-ready', t: 'Creates in both English and French. French-only creators are in the Language filter under French', f: { language: ['French-ready (EN + FR)'] } },
   { k: 'adr', l: 'Ad-ready', t: 'Approved partnership ads on their application', f: { flags: ['Ad-ready'] } },
@@ -213,11 +220,14 @@ const S = { view: 'wall', q: '', sort: 'new', f: {}, fn: null, fnLabel: '', cmp:
 GROUPS.forEach((g) => (S.openGroups[g.k] = g.open));
 try { const v = JSON.parse(localStorage.getItem('jdcc-crm-ui') || 'null'); if (v) { if (v.view) S.view = v.view; if (v.sort) S.sort = v.sort; } } catch (e) {}
 function saveUI() { try { localStorage.setItem('jdcc-crm-ui', JSON.stringify({ view: S.view, sort: S.sort })); } catch (e) {} }
-function matchQ(c, qq) { if (!qq) return true; const cr = CRM[c.id]; const hay = norm([c.name, c.gender, c.city, c.metro, c.provName, c.prov, c.handle, c.niche, c.apart, c.more, c.style, c.near[0] && c.near[0].s.name, ...c.lanes, ...c.can, ...c.brands, ...c.equipment, ...c.langs, ...cr.tags, ...cr.notes.map((n) => n.text), cr.status, dispName(cr.owner)].join(' ')); return qq.split(/\s+/).every((t) => hay.includes(t)); }
+function matchQ(c, qq) { if (!qq) return true; const cr = CRM[c.id]; const hay = norm([c.name, c.gender, c.city, c.metro, c.provName, c.prov, c.handle, c.niche, c.apart, c.more, c.style, c.near[0] && c.near[0].s.name, ...c.lanes, ...c.can, ...c.brands, ...c.equipment, ...c.langs, ...cr.tags, ...cr.notes.map((n) => n.text), cr.status, ...reqsFor(c.id).map((r) => dispName(r.requested_for))].join(' ')); return qq.split(/\s+/).every((t) => hay.includes(t)); }
 function applyF(list, f, skip, fn) { return list.filter((c) => { if (fn && !fn(c)) return false; for (const g of GROUPS) { if (g.k === skip) continue; const sel = f[g.k]; if (!sel || !sel.length) continue; const v = g.get(c); if (!sel.some((x) => v.includes(x))) return false; } return true; }); }
 const nq = () => norm(S.q.trim());
+// Declined creators are hidden unless switched on, filtered for, or in the pipeline view
+const showingDeclined = () => S.showDeclined || (S.f.status || []).includes('Declined') || S.view === 'board';
+const pool = () => C.filter((c) => matchQ(c, nq()) && (showingDeclined() || CRM[c.id].status !== 'Declined'));
 function results() {
-  const l = applyF(C.filter((c) => matchQ(c, nq())), S.f, null, S.fn); const s = S.sort;
+  const l = applyF(pool(), S.f, null, S.fn); const s = S.sort;
   l.sort((a, b) => s === 'name' ? a.name.localeCompare(b.name) : s === 'score' ? (teamScore(b.id) ?? -1) - (teamScore(a.id) ?? -1) : s === 'near' ? nd(a) - nd(b) : s === 'reach' ? maxAud(b) - maxAud(a) : s === 'tt' ? (b.tt || 0) - (a.tt || 0) : s === 'ig' ? (b.ig || 0) - (a.ig || 0) : s === 'yt' ? (b.yt || 0) - (a.yt || 0) : b.applied - a.applied);
   return l;
 }
@@ -259,18 +269,20 @@ function renderSync() {
   el.title = LAST_SYNC.error || 'Applications sync from Jotform automatically every few minutes';
 }
 function renderViews() {
-  const base = C.filter((c) => matchQ(c, nq()));
+  const base = pool();
   $('views').innerHTML = PRESETS.map((p) => { const on = p.fn ? S.fn === p.fn && !fCountNoFn() : !S.fn && sameF(S.f, p.f); return `<button type="button" class="vchip${p.warn ? ' warn' : ''}" data-act="preset" data-p="${p.k}" aria-pressed="${on}"${p.t ? ` title="${esc(p.t)}"` : ''}>${esc(p.l)} <b class="num">${applyF(base, p.f, null, p.fn).length}</b></button>`; }).join('');
 }
 function renderActive() {
   let h = `<span class="count"><strong class="num">${results().length}</strong> of ${C.length} creators</span>`;
+  const nDec = C.filter((c) => CRM[c.id].status === 'Declined').length;
+  if (nDec && S.view !== 'board' && !(S.f.status || []).includes('Declined')) h += `<button type="button" class="decl${S.showDeclined ? ' on' : ''}" data-act="decl">${S.showDeclined ? `Showing ${nDec} declined · Hide` : `${nDec} declined hidden · Show`}</button>`;
   if (S.fn) h += `<span class="pill-x"><span>View</span>${esc(S.fnLabel)}<button type="button" aria-label="Remove filter" data-act="rmfn">×</button></span>`;
   for (const g of GROUPS) (S.f[g.k] || []).forEach((v) => { h += `<span class="pill-x"><span>${esc(g.l)}</span>${esc(g.k === 'province' ? PROV[v] || v : v)}<button type="button" aria-label="Remove filter" data-act="rmf" data-g="${g.k}" data-v="${esc(v)}">×</button></span>`; });
   if (fCount() || S.q) h += `<button type="button" class="linkbtn" data-act="clearf">Clear all</button>`;
   $('active').innerHTML = h;
 }
 function renderRail() {
-  const base = C.filter((c) => matchQ(c, nq()));
+  const base = pool();
   let h = `<div class="rail-head"><span class="dsp" style="font-size:26px">Filters</span><button type="button" class="ib" data-act="closerail" aria-label="Close filters">×</button></div>`;
   for (const g of GROUPS) {
     const opts = g.opts(); if (!opts.length) continue;
@@ -316,7 +328,8 @@ function cardHTML(c, extra) {
       <div class="stats">${statBox('TikTok', c.tt, c.tt === top && top > 0)}${statBox('Insta', c.ig, c.ig === top && top > 0)}${statBox('YouTube', c.yt, c.yt === top && top > 0)}</div>
       ${nearLine(c)}
       <div class="tags">${cr.tags.slice(0, 2).map((t) => `<span class="tag team">${esc(t)}</span>`).join('')}${needs(c).slice(0, 1).map((t) => `<span class="tag warn">${esc(t)}</span>`).join('')}${c.lanes.slice(0, cr.tags.length ? 1 : 2).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
-      <div class="cfoot"><span>Applied ${daysAgo(c) === 0 ? 'today' : daysAgo(c) + 'd ago'}</span><label class="cmpbox"><input type="checkbox" data-act="cmp" data-id="${c.id}" ${S.cmp.includes(c.id) ? 'checked' : ''}> Compare</label></div>
+      ${reqsFor(c.id).length ? `<div class="rqline">Review requested from ${reqsFor(c.id).map((r) => shortName(r.requested_for)).join(', ')}</div>` : ''}
+      <div class="cfoot"><span>Applied ${daysAgo(c) === 0 ? 'today' : daysAgo(c) + 'd ago'}${cr.notes.length ? ` · <span title="Notes">✎ ${cr.notes.length}</span>` : ''}</span>${['New', 'Spotlight'].includes(cr.status) ? `<button type="button" class="spotbtn${cr.status === 'Spotlight' ? ' on' : ''}" data-act="spot" data-id="${c.id}" title="${cr.status === 'Spotlight' ? 'Remove from Spotlight' : 'Spotlight: flag for review'}">${cr.status === 'Spotlight' ? '◉ Spotlighted' : '◎ Spotlight'}</button>` : ''}<label class="cmpbox"><input type="checkbox" data-act="cmp" data-id="${c.id}" ${S.cmp.includes(c.id) ? 'checked' : ''}> Compare</label></div>
     </div></article>`;
 }
 const PAGE = 48; S.limit = PAGE; let lastSig = '', moreObs = null;
@@ -341,11 +354,11 @@ function boardHTML(L) {
 }
 function tableHTML(L) {
   const sb2 = (k, l) => `<button type="button" data-act="sortby" data-k="${k}" aria-pressed="${S.sort === k}">${l}</button>`;
-  return `<div class="tw"><table><thead><tr><th></th><th></th><th>${sb2('name', 'Creator')}</th><th>Location</th><th>${sb2('near', 'Closest JD store')}</th><th>Lang</th><th style="text-align:right">${sb2('tt', 'TikTok')}</th><th style="text-align:right">${sb2('ig', 'Instagram')}</th><th style="text-align:right">${sb2('yt', 'YouTube')}</th><th style="text-align:right">${sb2('score', 'Score')}</th><th>Status</th><th>Owner</th><th>Tags</th><th>${sb2('new', 'Applied')}</th></tr></thead><tbody id="tbody">
+  return `<div class="tw"><table><thead><tr><th></th><th></th><th>${sb2('name', 'Creator')}</th><th>Location</th><th>${sb2('near', 'Closest JD store')}</th><th>Lang</th><th style="text-align:right">${sb2('tt', 'TikTok')}</th><th style="text-align:right">${sb2('ig', 'Instagram')}</th><th style="text-align:right">${sb2('yt', 'YouTube')}</th><th style="text-align:right">${sb2('score', 'Score')}</th><th>Status</th><th>Review requested</th><th>Tags</th><th>${sb2('new', 'Applied')}</th></tr></thead><tbody id="tbody">
   ${L.slice(0, S.limit).map(rowHTML).join('')}
   </tbody></table></div>${moreHTML(L)}`;
 }
-function rowHTML(c) { const cr = CRM[c.id]; return `<tr data-act="open" data-id="${c.id}"><td><button type="button" class="tstar${cr.fav ? ' on' : ''}" data-act="fav" data-id="${c.id}" aria-label="Favourite">${STAR(cr.fav)}</button></td><td><img src="${c.head}" alt=""></td><td><div class="n">${esc(c.name)}</div><div style="color:var(--fg3);font-size:11px">@${esc(c.handle)}</div></td><td>${esc(c.city)}${c.prov ? ', ' + c.prov : ''}</td><td>${c.near[0] ? `<div style="font-weight:600">${esc(c.near[0].s.name)}</div><div style="color:${nd(c) <= 25 ? 'var(--lime)' : 'var(--fg3)'};font-size:11px">${kmTxt(nd(c))}</div>` : '<span class="muted">Unknown</span>'}</td><td>${c.langs.map((l) => (l === 'French' ? 'FR' : l === 'English' ? 'EN' : '')).filter(Boolean).join(' / ')}</td><td class="r">${fmt(c.tt)}</td><td class="r">${fmt(c.ig)}</td><td class="r">${fmt(c.yt)}</td><td class="r">${sc1(teamScore(c.id))}</td><td>${stInline(cr.status)}</td><td>${esc(dispName(cr.owner))}</td><td><div class="tags">${cr.tags.map((t) => `<span class="tag team">${esc(t)}</span>`).join('')}</div></td><td class="num">${fmtDate(c.applied)}</td></tr>`; }
+function rowHTML(c) { const cr = CRM[c.id]; return `<tr data-act="open" data-id="${c.id}"><td><button type="button" class="tstar${cr.fav ? ' on' : ''}" data-act="fav" data-id="${c.id}" aria-label="Favourite">${STAR(cr.fav)}</button></td><td><img src="${c.head}" alt=""></td><td><div class="n">${esc(c.name)}</div><div style="color:var(--fg3);font-size:11px">@${esc(c.handle)}</div></td><td>${esc(c.city)}${c.prov ? ', ' + c.prov : ''}</td><td>${c.near[0] ? `<div style="font-weight:600">${esc(c.near[0].s.name)}</div><div style="color:${nd(c) <= 25 ? 'var(--lime)' : 'var(--fg3)'};font-size:11px">${kmTxt(nd(c))}</div>` : '<span class="muted">Unknown</span>'}</td><td>${c.langs.map((l) => (l === 'French' ? 'FR' : l === 'English' ? 'EN' : '')).filter(Boolean).join(' / ')}</td><td class="r">${fmt(c.tt)}</td><td class="r">${fmt(c.ig)}</td><td class="r">${fmt(c.yt)}</td><td class="r">${sc1(teamScore(c.id))}</td><td>${stInline(cr.status)}</td><td>${esc(reqsFor(c.id).map((r) => dispName(r.requested_for)).join(', ') || '–')}</td><td><div class="tags">${cr.tags.map((t) => `<span class="tag team">${esc(t)}</span>`).join('')}</div></td><td class="num">${fmtDate(c.applied)}</td></tr>`; }
 function renderTray() {
   const t = document.querySelector('.tray'); if (t) t.remove(); if (!S.cmp.length) return;
   const el = document.createElement('div'); el.className = 'tray';
@@ -380,9 +393,23 @@ function storeCard(c) {
 
 /* ---------------------------------------------------------------- scorecard */
 function scoreHTML(id) {
-  const cr = CRM[id]; const mine = cr.scores[ME] || {}; const others = Object.entries(cr.scores).filter(([w]) => w !== ME); const ts = teamScore(id); const n = Object.values(cr.scores).filter((o) => o.cam || o.prod || o.fit).length;
-  return `<div class="score">${CRIT.map(([k, l, s]) => `<div class="srow"><div class="cr">${l}<small>${s}</small></div><div class="dots">${[1, 2, 3, 4, 5].map((v) => `<button type="button" data-act="rate" data-k="${k}" data-v="${v}" aria-pressed="${mine[k] === v}" aria-label="${l} ${v} of 5">${v}</button>`).join('')}<span class="others">${others.map(([w, o]) => (o[k] ? `<span title="${esc(w)}">${esc(dispName(w))} ${o[k]}</span>` : '')).join('')}</span></div><div class="savg num">${sc1(critAvg(id, k))}</div></div>`).join('')}
-  <div class="score-foot"><div><div class="lbl" style="margin:0">Team score</div><div class="big num">${sc1(ts)}<span style="font-size:16px;color:var(--fg3)"> / 5</span></div></div><div style="display:grid;gap:6px;justify-items:end"><span class="muted" style="font-size:11.5px">${n} reviewer${n === 1 ? '' : 's'}${mine.cam || mine.prod || mine.fit ? '' : ', you have not scored yet'}</span>${isSplit(id) ? '<span class="split">Split opinion: discuss before deciding</span>' : ''}</div></div></div>`;
+  const cr = CRM[id]; const mine = cr.scores[ME] || {}; const ts = teamScore(id);
+  const people = Object.entries(cr.scores).filter(([, o]) => o.cam || o.prod || o.fit).sort(([a], [b]) => (a === ME ? -1 : b === ME ? 1 : a.localeCompare(b)));
+  const pend = reqsFor(id).filter((r) => !cr.scores[r.requested_for]).map((r) => r.requested_for);
+  const avg = (o) => { const v = CRIT.map(([k]) => o[k]).filter(Boolean); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const spread = (k) => { const v = people.map(([, o]) => o[k]).filter(Boolean); return v.length > 1 && Math.max(...v) - Math.min(...v) >= 2; };
+  return `<div class="score"><div class="lbl" style="margin:0 0 4px">Your scores</div>${CRIT.map(([k, l, s]) => `<div class="srow"><div class="cr">${l}<small>${s}</small></div><div class="dots">${[1, 2, 3, 4, 5].map((v) => `<button type="button" data-act="rate" data-k="${k}" data-v="${v}" aria-pressed="${mine[k] === v}" aria-label="${l} ${v} of 5">${v}</button>`).join('')}</div><div class="savg num">${mine[k] || '–'}</div></div>`).join('')}
+  <table class="sbk"><thead><tr><th>Reviewer</th>${CRIT.map(([, l]) => `<th>${l}</th>`).join('')}<th>Avg</th></tr></thead><tbody>
+    ${people.map(([w, o]) => `<tr${w === ME ? ' class="me"' : ''}><td>${esc(w === ME ? 'You' : dispName(w))}</td>${CRIT.map(([k]) => `<td class="num">${o[k] || '–'}</td>`).join('')}<td class="num"><b>${sc1(avg(o))}</b></td></tr>`).join('')}
+    ${pend.map((w) => `<tr class="pend"><td>${esc(w === ME ? 'You' : dispName(w))}</td><td colspan="${CRIT.length + 1}">Asked to review, not scored yet</td></tr>`).join('')}
+    ${people.length ? '' : `<tr class="pend"><td colspan="${CRIT.length + 2}">Nobody has scored yet</td></tr>`}
+  </tbody><tfoot><tr><td>Team average</td>${CRIT.map(([k]) => `<td class="num${spread(k) ? ' split2' : ''}" ${spread(k) ? 'title="Scores differ by 2 or more"' : ''}>${sc1(critAvg(id, k))}</td>`).join('')}<td class="num"><b class="tsc">${sc1(ts)}</b></td></tr></tfoot></table>
+  ${isSplit(id) ? '<div class="split">Scores differ by 2+ points on a red column. Discuss before deciding</div>' : ''}</div>`;
+}
+function reviewHTML(c) {
+  const open = reqsFor(c.id); const asked = new Set(open.map((r) => r.requested_for));
+  return `<div class="rq">${open.length ? open.map((r) => `<div class="rqi"><div><b>${esc(r.requested_for === ME ? 'You' : dispName(r.requested_for))}</b> asked by ${esc(shortName(r.requested_by))} · ${fmtDate(r.created_at)}${r.note ? `<div class="rqn">“${esc(r.note)}”</div>` : ''}</div><button type="button" class="linkbtn" data-act="rqdone" data-r="${r.id}">Mark done</button></div>`).join('') : '<div class="muted" style="font-size:12px">No open review requests. Requests clear automatically when that person scores this creator.</div>'}
+    <div class="rqform"><input id="rqnote" placeholder="Optional note, e.g. check her styling posts" maxlength="200" aria-label="Note for the reviewer"><div class="rqwho">${TEAM.map((w) => `<button type="button" class="btn sm${asked.has(w) ? ' done' : ''}" data-act="rqask" data-w="${esc(w)}"${asked.has(w) ? ' disabled' : ''}>${asked.has(w) ? 'Asked' : 'Ask'} ${esc(w === ME ? 'me' : dispName(w))}</button>`).join('')}</div></div></div>`;
 }
 
 /* ---------------------------------------------------------------- outreach */
@@ -415,7 +442,6 @@ function outreachHTML(c) {
 /* ---------------------------------------------------------------- drawer */
 function drawerHTML(c) {
   const cr = CRM[c.id]; const L = results(); const idx = L.findIndex((x) => x.id === c.id); const m = media(c); const top = maxAud(c); const r = rights(c);
-  const owners = ['Unassigned', ...uniq([...TEAM, cr.owner].filter((x) => x && x !== 'Unassigned'))];
   const sel = (id, label, opts, val, show) => `<div class="fld"><label for="${id}">${label}</label><select id="${id}" data-field="${id.replace('f-', '')}">${opts.map((o) => `<option value="${esc(o)}"${o === val ? ' selected' : ''}>${esc(show ? show(o) : o)}</option>`).join('')}</select></div>`;
   const ps = (k, v, plat) => `<div class="pstat${v == null ? ' na' : ''}"><div class="k">${k}</div><div class="v num" style="${v && v === top ? 'color:var(--lime)' : ''}">${fmt(v)}</div><div class="h">${c.urls[plat] ? '@' + esc(handleOf(c.urls[plat], plat)) : 'No profile'}</div></div>`;
   const rev = S.reveal[c.id];
@@ -464,24 +490,26 @@ function drawerHTML(c) {
       <div class="crm">
         <div class="crm-top"><button type="button" class="favbtn${cr.fav ? ' on' : ''}" data-act="fav" data-id="${c.id}">${STAR(cr.fav)} ${cr.fav ? 'Favourited' : 'Favourite'}</button><span class="muted" style="font-size:11.5px">In ${esc(cr.status)} for ${stageDays(c.id)} day${stageDays(c.id) === 1 ? '' : 's'}</span></div>
         <div><span class="lbl">Pipeline stage</span><div class="stages">${STATUSES.map((s) => `<button type="button" class="stg" data-act="stage" data-s="${s}" aria-pressed="${cr.status === s}" style="${cr.status === s ? 'background:' + STCOL[s] + ';border-color:' + STCOL[s] : ''}"><span class="dot" style="background:${STCOL[s]}"></span>${s}</button>`).join('')}</div></div>
-        <div class="fields">${sel('f-owner', 'Owner', owners, cr.owner, dispName)}${sel('f-type', 'Creator type', TYPES, cr.type)}${sel('f-rem', 'Remuneration', REMS, cr.rem)}${sel('f-tier', 'Deliverable tier', TIERS, cr.tier)}</div>
+        <div class="fields">${sel('f-type', 'Creator type', TYPES, cr.type)}${sel('f-rem', 'Remuneration', REMS, cr.rem)}${sel('f-tier', 'Deliverable tier', TIERS, cr.tier)}</div>
         ${cr.status === 'Onboarded' ? `<div class="fld"><label for="f-rights">Usage rights start</label><input id="f-rights" type="date" value="${cr.rightsStart || ''}" style="background:var(--s2);border:1px solid var(--line);border-radius:8px;padding:7px 10px">${r && r.end ? `<div style="font-size:12px;margin-top:6px">${esc(r.state)} · 12 months to ${fmtDate(r.end, { month: 'short', day: 'numeric', year: 'numeric' })} <span class="muted">(${r.left} days left)</span></div>` : '<div class="muted" style="font-size:11.5px;margin-top:6px">Set this when content is first delivered.</div>'}</div>` : ''}
         <div><span class="lbl">Campaign boards</span><div class="bchips">${BOARDS.map((b) => `<button type="button" class="bchip" data-act="tboard" data-b="${b.id}" aria-pressed="${!!MEMBERS.get(b.id + '|' + c.id)}">${esc(b.name)}</button>`).join('') || '<span class="muted" style="font-size:12px">No boards yet. Create one in the Boards tab.</span>'}</div></div>
         <div><span class="lbl">Team tags</span>
           <div class="tagedit">${cr.tags.map((t) => `<span class="tag team">${esc(t)}<button type="button" data-act="rmtag" data-t="${esc(t)}" aria-label="Remove tag">×</button></span>`).join('') || '<span class="muted" style="font-size:12px">No tags yet</span>'}</div>
           <div class="tagadd"><input id="tagin" placeholder="Add a tag, press Enter" aria-label="Add tag">${TAG_SUGG.filter((t) => !cr.tags.includes(t)).slice(0, 4).map((t) => `<button type="button" class="sugg" data-act="addtag" data-t="${esc(t)}">+ ${esc(t)}</button>`).join('')}</div></div>
       </div>
-      <div class="sec-t">Scorecard <small>Your scores plus the team's</small></div>
+      <div class="sec-t">Scorecard <small>Everyone scores separately. The team score is the average</small></div>
       ${scoreHTML(c.id)}
+      <div class="sec-t">Review requests <small>Ask a teammate to look at this creator</small></div>
+      ${reviewHTML(c)}
+      <div class="sec-t">Notes <small>${cr.notes.length} note${cr.notes.length === 1 ? '' : 's'}</small></div>
+      <div class="notes">${cr.notes.map((n) => `<div class="note"><div class="m"><b>${esc(dispName(n.by))}</b> · ${new Date(n.at).toLocaleString('en-CA', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>${esc(n.text).replace(/\n/g, '<br>')}</div>`).join('')}
+        <div class="noteform"><textarea id="notein" placeholder="Add a note for the team"></textarea><div><button type="button" class="btn pri" data-act="addnote">Add note</button></div></div></div>
       <div class="sec-t">Audience</div>
       <div class="pstats">${ps('TikTok', c.tt, 'TikTok')}${ps('Instagram', c.ig, 'Instagram')}${ps('YouTube', c.yt, 'YouTube')}</div>
       <div class="sec-t">Outreach <small>Templates fill in from this profile</small></div>
       ${outreachHTML(c)}
       <div class="sec-t">Contact</div>
       <div class="contact"><span>${rev ? esc(c.email) + ' · ' + esc(c.phone || 'No phone') : esc(mask(c.email)) + ' · ' + esc(mask(c.phone))}</span>${rev ? '<span class="muted">Viewing is logged</span>' : `<button type="button" class="reveal" data-act="reveal">Show contact details</button>`}</div>
-      <div class="sec-t">Notes <small>${cr.notes.length} note${cr.notes.length === 1 ? '' : 's'}</small></div>
-      <div class="notes">${cr.notes.map((n) => `<div class="note"><div class="m"><b>${esc(dispName(n.by))}</b> · ${new Date(n.at).toLocaleString('en-CA', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>${esc(n.text).replace(/\n/g, '<br>')}</div>`).join('')}
-        <div class="noteform"><textarea id="notein" placeholder="Add a note for the team"></textarea><div><button type="button" class="btn pri" data-act="addnote">Add note</button></div></div></div>
       <div class="sec-t">Activity</div>
       <div class="log">${cr.log.slice(0, 15).map((l) => `<div><b>${fmtDate(l.at)}</b> · ${esc(l.text)} <span class="muted">· ${esc(dispName(l.by))}</span></div>`).join('')}</div>
       <div class="dangerzone"><b style="color:var(--fg)">Erase this applicant</b><span>Use this if the applicant asks to be removed. They disappear from the CRM now and their data and photos are permanently erased at the next hourly sync. Also delete the submission in Jotform.</span><div><button type="button" class="btn danger${S.armDelete === c.id ? ' armed' : ''}" data-act="erase">${S.armDelete === c.id ? 'Click again to confirm' : 'Erase applicant'}</button></div></div>
@@ -531,7 +559,7 @@ function cmpHTML() {
       txt('Partnership ads', (c) => yesNo(c.pads)), txt('French-ready', (c) => yesNo(bilingual(c))), txt('Languages', (c) => esc(c.langs.join(', ') || 'Not given')),
       txt('Gender', (c) => esc(c.gender)), txt('Age', (c) => (c.age != null ? c.age : 'Not given')), txt('Worked with JD', (c) => yesNo(c.workedJD)), txt('JD customer', (c) => yesNo(c.customer))]),
     sec('Content', [list('Content lanes', (c) => c.lanes), list('What they can do', (c) => c.can), txt('On camera', (c) => esc(c.style)), list('Equipment', (c) => c.equipment), list('Editing', (c) => c.software), list('Brand pools', (c) => c.brands)]),
-    sec('In the CRM', [txt('Stage', (c) => stInline(CRM[c.id].status)), txt('Owner', (c) => esc(dispName(CRM[c.id].owner))), list('Boards', (c) => BOARDS.filter((b) => MEMBERS.get(b.id + '|' + c.id)).map((b) => b.name)), list('Team tags', (c) => CRM[c.id].tags), txt('Notes', (c) => CRM[c.id].notes.length || '–'), txt('Applied', (c) => (daysAgo(c) === 0 ? 'Today' : daysAgo(c) + ' days ago')), txt('Posts / setup photos', (c) => `${c.posts.length} / ${c.setups.length}`)]),
+    sec('In the CRM', [txt('Stage', (c) => stInline(CRM[c.id].status)), txt('Review requested', (c) => esc(reqsFor(c.id).map((r) => dispName(r.requested_for)).join(', ') || '–')), list('Boards', (c) => BOARDS.filter((b) => MEMBERS.get(b.id + '|' + c.id)).map((b) => b.name)), list('Team tags', (c) => CRM[c.id].tags), txt('Notes', (c) => CRM[c.id].notes.length || '–'), txt('Applied', (c) => (daysAgo(c) === 0 ? 'Today' : daysAgo(c) + ' days ago')), txt('Posts / setup photos', (c) => `${c.posts.length} / ${c.setups.length}`)]),
   ].join('');
   const leader = Math.max(...wins);
   return `<div class="full" role="dialog" aria-modal="true" aria-label="Compare creators"><div class="dh"><div style="display:flex;gap:14px;align-items:baseline;flex-wrap:wrap"><span class="dsp" style="font-size:30px">Compare creators</span><span class="muted">${n} side by side · lime marks the leader in each row</span></div>
@@ -564,7 +592,7 @@ function castHTML() {
     <div class="pname dsp">${esc(c.name)}</div>
     <div class="pwho">${c.gender !== 'Not given' ? `<span class="whochip">${esc(c.gender)}</span>` : '<span class="whochip na">Gender not given</span>'}${c.age != null ? `<span class="whochip">Age ${c.age}</span>` : '<span class="whochip na">Age not given</span>'}</div>
     <div class="ploc">${esc(c.city)}${c.provName ? ', ' + esc(c.provName) : ''} ${c.langs.map((l) => `<span class="chip">${esc(l)}</span>`).join('')} <span class="muted">· applied ${daysAgo(c)}d ago</span></div>
-    <div class="badges">${bilingual(c) ? '<span class="bdg lime">French-ready</span>' : ''}${c.pads ? '<span class="bdg lime">Ad-ready</span>' : ''}${needs(c).filter((x) => !['No owner', 'Stuck 7+ days', 'Waiting 14+ days'].includes(x)).map((x) => `<span class="bdg warn">${esc(x)}</span>`).join('')}</div>
+    <div class="badges">${bilingual(c) ? '<span class="bdg lime">French-ready</span>' : ''}${c.pads ? '<span class="bdg lime">Ad-ready</span>' : ''}${needs(c).filter((x) => !['Review waiting 3+ days', 'Stuck 7+ days', 'Waiting 14+ days'].includes(x)).map((x) => `<span class="bdg warn">${esc(x)}</span>`).join('')}</div>
     <div class="pstats" style="margin-top:14px">${[['TikTok', c.tt], ['Instagram', c.ig], ['YouTube', c.yt]].map(([k, v]) => `<div class="pstat${v == null ? ' na' : ''}"><div class="k">${k}</div><div class="v num">${fmt(v)}</div></div>`).join('')}</div>
     <div class="near${nd(c) <= 25 ? ' ok' : ''}" style="margin-top:12px;font-size:13px">${PIN}<span>${c.near[0] ? kmTxt(nd(c)) + ' to JD ' + esc(c.near[0].s.name) + ' · ' + storeLabel(nd(c)) : 'Location unknown'}</span></div>
     ${c.niche ? `<div class="quote" style="margin-top:12px"><div class="q">Niche or edge</div>${esc(c.niche)}</div>` : ''}
@@ -589,12 +617,86 @@ async function castUndo() { const K = S.cast; const h = K.hist.pop(); if (!h) re
 
 /* ---------------------------------------------------------------- boards + sharing */
 const shareUrl = (b) => location.origin + location.pathname.replace(/[^/]*$/, '') + 'share.html?t=' + encodeURIComponent(b.share.token);
+/* ---------------------------------------------------------------- board rules (same logic as the database's app_matches) */
+const YESRX = /^(yes|oui)/i;
+const SHORTLISTED = ['Shortlisted', 'Contacted', 'Onboarded'];
+function ruleMatch(c, r) {
+  if (!r) return false; const a = c.raw || {}; const cr = CRM[c.id]; const has = (arr, x) => (arr || []).includes(x);
+  const any = (arr, list) => list.some((x) => has(arr, x)); const all = (arr, list) => list.every((x) => has(arr, x));
+  if (a.consent === false) return false;
+  if (r.lanes_any && !any(a.content_lanes, r.lanes_any)) return false;
+  if (r.lanes_all && !all(a.content_lanes, r.lanes_all)) return false;
+  if (r.lanes_none && any(a.content_lanes, r.lanes_none)) return false;
+  if (r.can_any && !any(a.can_do, r.can_any)) return false;
+  if (r.can_all && !all(a.can_do, r.can_all)) return false;
+  if (r.can_none && any(a.can_do, r.can_none)) return false;
+  if (r.langs_all && !all(a.languages, r.langs_all)) return false;
+  if (r.langs_none && any(a.languages, r.langs_none)) return false;
+  if (r.french_ready != null && all(a.languages, ['English', 'French']) !== r.french_ready) return false;
+  if (r.provinces_any && !r.provinces_any.includes(a.province || '')) return false;
+  if (r.provinces_none && r.provinces_none.includes(a.province || '')) return false;
+  if (r.cities_any && !r.cities_any.map((x) => x.toLowerCase()).includes((a.city || '').toLowerCase())) return false;
+  if (r.gender_any && !r.gender_any.map((x) => x.toLowerCase()).includes((a.gender || '').toLowerCase())) return false;
+  if (r.age_min != null && (c.age == null || c.age < r.age_min)) return false;
+  if (r.age_max != null && (c.age == null || c.age > r.age_max)) return false;
+  if (r.min_followers != null) { const P = r.platforms; const top = Math.max(!P || P.includes('tiktok') ? c.tt || 0 : 0, !P || P.includes('instagram') ? c.ig || 0 : 0, !P || P.includes('youtube') ? c.yt || 0 : 0); if (top < r.min_followers) return false; }
+  const flag = { partnership_ads: a.partnership_ads, customer: a.is_customer, employee: a.is_employee, worked_jd: a.worked_with_jd };
+  for (const k in flag) if (r[k] != null && YESRX.test(flag[k] || '') !== r[k]) return false;
+  if (r.statuses_any && !r.statuses_any.includes(cr.status)) return false;
+  if (r.statuses_none && r.statuses_none.includes(cr.status)) return false;
+  if (r.tags_any && !any(cr.tags, r.tags_any)) return false;
+  if (r.tags_none && any(cr.tags, r.tags_none)) return false;
+  if (r.min_score != null) { const s = teamScore(c.id); if (s == null || s < r.min_score) return false; }
+  if (r.max_store_km != null && !(nd(c) <= r.max_store_km)) return false;
+  return true;
+}
+// rule editor: each option cycles Either → Yes → No (or Either → Yes where "No" makes no sense)
+const RCOUNT = (get) => { const m = {}; C.forEach((c) => (get(c) || []).forEach((x) => x && (m[x] = (m[x] || 0) + 1))); return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k]) => k); };
+const RGROUPS = [
+  { k: 'gender', l: 'Gender', yesOnly: true, yes: 'gender_any', opts: () => RCOUNT((c) => [c.raw.gender]) },
+  { k: 'province', l: 'Province', yes: 'provinces_any', no: 'provinces_none', opts: () => RCOUNT((c) => [c.raw.province]) },
+  { k: 'city', l: 'City', yesOnly: true, yes: 'cities_any', opts: () => RCOUNT((c) => [c.raw.city]).slice(0, 24) },
+  { k: 'langs', l: 'Languages', yes: 'langs_all', no: 'langs_none', opts: () => RCOUNT((c) => c.raw.languages), hint: 'Yes = must create in it' },
+  { k: 'lanes', l: 'Content lanes', yes: 'lanes_any', yesAll: 'lanes_all', no: 'lanes_none', opts: () => RCOUNT((c) => c.raw.content_lanes) },
+  { k: 'can', l: 'What they can do', yes: 'can_any', yesAll: 'can_all', no: 'can_none', opts: () => RCOUNT((c) => c.raw.can_do) },
+  { k: 'stage', l: 'Pipeline stage', yes: 'statuses_any', no: 'statuses_none', opts: () => STATUSES },
+  { k: 'tags', l: 'Team tags', yes: 'tags_any', no: 'tags_none', opts: () => RCOUNT((c) => CRM[c.id].tags) },
+];
+const RFLAGS = [['partnership_ads', 'Approved partnership ads'], ['french_ready', 'French-ready (EN + FR)'], ['customer', 'JD customer'], ['employee', 'JD employee'], ['worked_jd', 'Worked with JD before']];
+function ruleState(r, g, o) { if ((r[g.yes] || []).includes(o) || (g.yesAll && (r[g.yesAll] || []).includes(o))) return 'yes'; if (g.no && (r[g.no] || []).includes(o)) return 'no'; return ''; }
+function setRule(r, key, val) { if (val == null || val === '' || (Array.isArray(val) && !val.length)) delete r[key]; else r[key] = val; }
+function cycleRule(r, gk, o) {
+  const g = RGROUPS.find((x) => x.k === gk); const st = ruleState(r, g, o); const rm = (k) => k && setRule(r, k, (r[k] || []).filter((x) => x !== o));
+  rm(g.yes); rm(g.yesAll); rm(g.no);
+  const next = st === '' ? 'yes' : st === 'yes' && !g.yesOnly && g.no ? 'no' : '';
+  if (next === 'yes') { const k = g.yesAll && r[g.yesAll] ? g.yesAll : g.yes; setRule(r, k, [...(r[k] || []), o]); }
+  if (next === 'no') setRule(r, g.no, [...(r[g.no] || []), o]);
+}
+function rulesEditorHTML(b) {
+  const r = S.re.r; const matches = C.filter((c) => ruleMatch(c, r) && CRM[c.id].status !== 'Declined'); const empty = !Object.keys(r).length;
+  const grp = (g) => { const opts = g.opts().filter(Boolean); if (!opts.length) return ''; const mode = g.yesAll && r[g.yesAll] ? 'all' : 'any';
+    return `<div class="rg"><div class="rgh"><b>${g.l}</b>${g.yesAll ? `<span class="rmode">Yes means: <button type="button" data-act="rmode" data-g="${g.k}" data-m="any" aria-pressed="${mode === 'any'}">any of them</button><button type="button" data-act="rmode" data-g="${g.k}" data-m="all" aria-pressed="${mode === 'all'}">all of them</button></span>` : ''}${g.hint ? `<small>${g.hint}</small>` : ''}</div>
+    <div class="ropts">${opts.map((o) => { const st = ruleState(r, g, o); return `<button type="button" class="ropt ${st}" data-act="rcycle" data-g="${g.k}" data-o="${esc(o)}">${st === 'yes' ? '✓ ' : st === 'no' ? '✕ ' : ''}${esc(o)}</button>`; }).join('')}</div></div>`; };
+  const sel = (key, label, opts) => `<label class="rsel"><span>${label}</span><select data-rk="${key}">${opts.map(([v, l]) => `<option value="${v}"${String(r[key] ?? '') === String(v) ? ' selected' : ''}>${l}</option>`).join('')}</select></label>`;
+  const tri = (key, label) => `<div class="rtri"><span>${label}</span>${[['', 'Either'], ['true', 'Yes'], ['false', 'No']].map(([v, l]) => `<button type="button" data-act="rflag" data-k="${key}" data-v="${v}" aria-pressed="${String(r[key] ?? '') === v}">${l}</button>`).join('')}</div>`;
+  const plats = r.platforms || [];
+  return `<div class="reditor"><div class="rhead"><div><div class="dsp" style="font-size:28px">Board rules</div><div class="muted" style="font-size:12px">Click an option once for <b class="yes">Yes</b>, again for <b class="no">No</b>, again to clear. Anyone who matches joins the board automatically, including future applicants. People you add or remove by hand stay that way.</div></div>
+    <div class="rlive"><div class="num"><b>${empty ? 0 : matches.length}</b> creator${matches.length === 1 ? '' : 's'} match</div><div class="fs">${empty ? '' : matches.slice(0, 8).map((c) => `<img src="${c.head}" alt="" title="${esc(c.name)}">`).join('')}</div></div></div>
+    <div class="rgrid">
+      <div class="rg"><div class="rgh"><b>Age</b></div><div class="rrow">${sel('age_min', 'From', [['', 'Any'], ...[18, 19, 20, 21, 23, 25, 30, 35].map((x) => [x, x])])}${sel('age_max', 'To', [['', 'Any'], ...[20, 21, 24, 25, 29, 30, 34, 35, 40].map((x) => [x, x])])}</div></div>
+      <div class="rg"><div class="rgh"><b>Followers</b></div><div class="rrow">${sel('min_followers', 'At least', [['', 'Any'], [1000, '1k'], [2000, '2k'], [5000, '5k'], [10000, '10k'], [25000, '25k'], [50000, '50k'], [100000, '100k']])}<span class="rplat">on ${[['tiktok', 'TikTok'], ['instagram', 'Instagram'], ['youtube', 'YouTube']].map(([k, l]) => `<button type="button" data-act="rplat" data-p="${k}" aria-pressed="${plats.includes(k)}">${l}</button>`).join('')}<small>${plats.length ? '' : 'any platform'}</small></span></div></div>
+      <div class="rg"><div class="rgh"><b>Team score and distance</b></div><div class="rrow">${sel('min_score', 'Team score', [['', 'Any'], [3, '3+'], [3.5, '3.5+'], [4, '4+'], [4.5, '4.5+']])}${sel('max_store_km', 'Nearest JD store', [['', 'Any distance'], [10, 'Within 10 km'], [25, 'Within 25 km'], [50, 'Within 50 km'], [100, 'Within 100 km']])}</div></div>
+      <div class="rg"><div class="rgh"><b>Flags</b></div>${RFLAGS.map(([k, l]) => tri(k, l)).join('')}</div>
+      ${RGROUPS.map(grp).join('')}
+    </div>
+    <div class="rfoot">${b && b.rules ? '<button type="button" class="linkbtn" data-act="rclear" style="color:var(--fg3)">Stop auto-updating (keep current members)</button>' : '<span></span>'}<div style="display:flex;gap:8px"><button type="button" class="btn" data-act="rcancel">Cancel</button><button type="button" class="btn pri" data-act="rsave"${empty ? ' disabled' : ''}>Save rules</button></div></div></div>`;
+}
 function boardsHTML() {
   return `<div class="bhead"><div><div class="dsp" style="font-size:44px">Campaign boards</div><div class="muted">Group creators by campaign or brief. Share a read-only board with brand partners or leadership.</div></div></div>
   <div class="boards">${BOARDS.map((b) => { const cs = b.ids.map((id) => C.find((c) => c.id === id)).filter(Boolean); return `<article class="bcard"><div class="mosaic" data-act="bopen" data-b="${b.id}">${cs.length ? cs.slice(0, 6).map((c) => `<img src="${c.head}" alt="">`).join('') : '<div class="mempty">No creators yet</div>'}${b.rules ? '<span class="autochip" title="New applicants who match are added automatically">⟳ Auto</span>' : ''}<span class="mcount num">${cs.length}</span><div class="mtitle dsp">${esc(b.name)}</div></div>
-    <div class="bbody"><div class="d">${esc(b.desc.replace(/^Auto-updating board\.\s*/, ''))}</div>${b.rules ? `<div class="rules">${rulesText(b.rules)}</div>` : ''}<div class="muted" style="font-size:11.5px">${cs.length} creator${cs.length === 1 ? '' : 's'} · reach ${fmt(cs.reduce((a, c) => a + c.reach, 0))} · ${cs.filter((c) => nd(c) <= 25).length} near a store · made by ${esc(dispName(b.created_by))}</div>
+    <div class="bbody"><div class="d">${esc(b.desc.replace(/^Auto-updating board\.\s*/, ''))}</div>${b.rules ? `<div class="rules">${rulesText(b.rules)}</div>` : ''}<div class="muted" style="font-size:11.5px">${cs.length} creator${cs.length === 1 ? '' : 's'} · ${cs.filter((c) => SHORTLISTED.includes(CRM[c.id].status)).length} shortlisted · reach ${fmt(cs.reduce((a, c) => a + c.reach, 0))} · ${cs.filter((c) => nd(c) <= 25).length} near a store · made by ${esc(dispName(b.created_by))}</div>
     <div class="bacts"><button type="button" class="btn" data-act="bopen" data-b="${b.id}">Open</button><button type="button" class="btn${b.share.on ? ' pri' : ''}" data-act="bshare" data-b="${b.id}">${b.share.on ? 'Shared' : 'Share'}</button></div></div></article>`; }).join('')}
-    <form class="newb" id="newboard"><div class="dsp" style="font-size:26px">New board</div><input id="nbname" placeholder="Board name, e.g. Back to School 2027" required maxlength="120" aria-label="Board name"><textarea id="nbdesc" rows="2" placeholder="What is it for? (optional)" aria-label="Board description"></textarea><div><button class="btn pri" type="submit">Create board</button></div></form>
+    <form class="newb" id="newboard"><div class="dsp" style="font-size:26px">New board</div><div class="muted" style="font-size:12px">Name it, then set rules (gender, age, location, content, followers, stage, tags) to fill it automatically.</div><input id="nbname" placeholder="Board name, e.g. Back to School 2027" required maxlength="120" aria-label="Board name"><textarea id="nbdesc" rows="2" placeholder="What is it for? (optional)" aria-label="Board description"></textarea><div><button class="btn pri" type="submit">Create board</button></div></form>
   </div>`;
 }
 function rulesText(r) {
@@ -608,13 +710,33 @@ function rulesText(r) {
   if (r.provinces_any) parts.push('in ' + r.provinces_any.join(' or '));
   if (r.provinces_none) parts.push('not in ' + r.provinces_none.join(' or '));
   if (r.min_followers) parts.push(k(r.min_followers) + '+ followers' + (plat.length ? ' on ' + plat.join(' or ') : ''));
-  if (r.partnership_ads) parts.push('OK with partnership ads');
+  if (r.partnership_ads != null) parts.push(r.partnership_ads ? 'OK with partnership ads' : 'not OK with partnership ads');
+  if (r.lanes_all) parts.push('all of ' + r.lanes_all.join(', ') + ' content');
+  if (r.lanes_none) parts.push('no ' + r.lanes_none.join(' or ') + ' content');
+  if (r.can_any) parts.push('does ' + r.can_any.join(' or ').toLowerCase());
+  if (r.can_none) parts.push("doesn't do " + r.can_none.join(' or ').toLowerCase());
+  if (r.langs_none) parts.push("doesn't create in " + r.langs_none.join(' or '));
+  if (r.french_ready != null) parts.push(r.french_ready ? 'French-ready' : 'not French-ready');
+  if (r.cities_any) parts.push('in ' + r.cities_any.join(' or '));
+  [['customer', 'JD customer'], ['employee', 'JD employee'], ['worked_jd', 'worked with JD']].forEach(([k, l]) => r[k] != null && parts.push((r[k] ? '' : 'not ') + l));
+  if (r.statuses_any) parts.push('stage ' + r.statuses_any.join(' or '));
+  if (r.statuses_none) parts.push('not ' + r.statuses_none.join(' or '));
+  if (r.tags_any) parts.push('tagged ' + r.tags_any.join(' or '));
+  if (r.tags_none) parts.push('not tagged ' + r.tags_none.join(' or '));
+  if (r.min_score != null) parts.push('team score ' + r.min_score + '+');
+  if (r.max_store_km != null) parts.push('within ' + r.max_store_km + ' km of a JD store');
   return '<span class="muted">Rule:</span> ' + esc(parts.join(' · '));
 }
 function boardDetailHTML() {
-  const b = BOARDS.find((x) => x.id === S.board); if (!b) { S.board = null; return boardsHTML(); } const cs = b.ids.map((id) => C.find((c) => c.id === id)).filter(Boolean);
-  return `<div class="bhead"><div><button type="button" class="linkbtn" data-act="bback" style="padding:0 0 6px">‹ All boards</button><div class="dsp n">${esc(b.name)}</div><div class="muted">${esc(b.desc)}</div>${b.rules ? `<div class="rules" style="margin-top:8px"><span class="autochip static">⟳ Auto-updating</span> ${rulesText(b.rules)}</div>` : ''}</div><div class="bacts"><button type="button" class="btn${b.share.on ? ' pri' : ''}" data-act="bshare" data-b="${b.id}">${b.share.on ? 'Shared · manage link' : 'Share board'}</button><button type="button" class="btn" data-act="barchive" data-b="${b.id}">${S.armDelete === 'b' + b.id ? 'Click again to archive' : 'Archive board'}</button></div></div>
-  ${cs.length ? `<div class="wall">${cs.map((c) => cardHTML(c, `<button type="button" class="rmb" data-act="bremove" data-b="${b.id}" data-id="${c.id}">Remove</button>`)).join('')}</div>` : `<div class="empty"><div class="dsp">Board is empty</div><p>Add creators from their profile or in Casting mode.</p></div>`}`;
+  const b = BOARDS.find((x) => x.id === S.board); if (!b) { S.board = null; return boardsHTML(); }
+  const allCs = b.ids.map((id) => C.find((c) => c.id === id)).filter(Boolean).filter((c) => S.showDeclined || CRM[c.id].status !== 'Declined');
+  const shortCs = allCs.filter((c) => SHORTLISTED.includes(CRM[c.id].status)); const cs = S.bShort ? shortCs : allCs;
+  const editing = S.re && S.re.bid === b.id;
+  return `<div class="bhead"><div><button type="button" class="linkbtn" data-act="bback" style="padding:0 0 6px">‹ All boards</button><div class="dsp n">${esc(b.name)}</div><div class="muted">${esc(b.desc)}</div>${b.rules ? `<div class="rules" style="margin-top:8px"><span class="autochip static">⟳ Auto-updating</span> ${rulesText(b.rules)}</div>` : '<div class="muted" style="font-size:12px;margin-top:6px">Manual board: add creators from their profile or Casting mode, or add rules to fill it automatically.</div>'}</div>
+    <div class="bacts"><button type="button" class="btn${editing ? ' pri' : ''}" data-act="redit" data-b="${b.id}">${b.rules ? 'Edit rules' : '+ Add rules'}</button><button type="button" class="btn${b.share.on ? ' pri' : ''}" data-act="bshare" data-b="${b.id}">${b.share.on ? 'Shared · manage link' : 'Share board'}</button><button type="button" class="btn" data-act="barchive" data-b="${b.id}">${S.armDelete === 'b' + b.id ? 'Click again to archive' : 'Archive board'}</button></div></div>
+  ${editing ? rulesEditorHTML(b) : ''}
+  <div class="bseg"><div class="seg2"><button type="button" data-act="bshort" data-v="0" aria-pressed="${!S.bShort}">All creators <b class="num">${allCs.length}</b></button><button type="button" data-act="bshort" data-v="1" aria-pressed="${!!S.bShort}">Shortlisted <b class="num">${shortCs.length}</b></button></div><span class="muted" style="font-size:11.5px">Shortlisted includes Contacted and Onboarded</span></div>
+  ${cs.length ? `<div class="wall">${cs.map((c) => cardHTML(c, `<button type="button" class="rmb" data-act="bremove" data-b="${b.id}" data-id="${c.id}">Remove</button>`)).join('')}</div>` : `<div class="empty"><div class="dsp">${S.bShort && allCs.length ? 'Nobody shortlisted yet' : 'Board is empty'}</div><p>${S.bShort && allCs.length ? 'Switch to All creators, or move creators to Shortlisted in the pipeline.' : 'Add rules to fill it automatically, or add creators from their profile or Casting mode.'}</p></div>`}`;
 }
 function shareHTML() {
   const b = BOARDS.find((x) => x.id === S.share); if (!b) return ''; const cs = b.ids.map((id) => C.find((c) => c.id === id)).filter(Boolean); const url = shareUrl(b);
@@ -1018,6 +1140,19 @@ document.addEventListener('click', async (e) => {
     case 'lbprofile': { const sid = S.lb.id; openProfile(sid); break; }
     case 'cmpopen': if (S.cmp.length >= 2) { S.cmpOpen = true; renderOverlays(); } break;
     case 'cmpclose': S.cmpOpen = false; renderOverlays(); break;
+    case 'spot': { e.stopPropagation(); const cr = CRM[id]; await setStatus(id, cr.status === 'Spotlight' ? 'New' : 'Spotlight'); break; }
+    case 'decl': S.showDeclined = !S.showDeclined; render(); break;
+    case 'bshort': S.bShort = a.dataset.v === '1'; renderMain(); break;
+    case 'redit': { const b = BOARDS.find((x) => x.id === a.dataset.b); if (S.re && S.re.bid === b.id) S.re = null; else S.re = { bid: b.id, r: JSON.parse(JSON.stringify(b.rules || {})) }; renderMain(); break; }
+    case 'rcycle': cycleRule(S.re.r, a.dataset.g, a.dataset.o); renderMain(); break;
+    case 'rmode': { const g = RGROUPS.find((x) => x.k === a.dataset.g); const cur = [...(S.re.r[g.yes] || []), ...(S.re.r[g.yesAll] || [])]; setRule(S.re.r, g.yes, a.dataset.m === 'any' ? cur : null); setRule(S.re.r, g.yesAll, a.dataset.m === 'all' ? (cur.length ? cur : null) : null); if (a.dataset.m === 'all' && !cur.length) S.re.r[g.yesAll] = []; renderMain(); break; }
+    case 'rflag': setRule(S.re.r, a.dataset.k, a.dataset.v === '' ? null : a.dataset.v === 'true'); renderMain(); break;
+    case 'rplat': { const pl = new Set(S.re.r.platforms || []); pl.has(a.dataset.p) ? pl.delete(a.dataset.p) : pl.add(a.dataset.p); setRule(S.re.r, 'platforms', [...pl]); renderMain(); break; }
+    case 'rcancel': S.re = null; renderMain(); break;
+    case 'rclear': { const b = BOARDS.find((x) => x.id === S.re.bid); const row = await updateBoard(b.id, { rules: null }); if (row) { S.re = null; toast('Board no longer auto-updates. Current members kept'); renderMain(); } break; }
+    case 'rsave': { const r = { ...S.re.r }; Object.keys(r).forEach((k) => Array.isArray(r[k]) && !r[k].length && delete r[k]); if (!Object.keys(r).length) break; const b = BOARDS.find((x) => x.id === S.re.bid); a.disabled = true; a.textContent = 'Saving…'; const row = await updateBoard(b.id, { rules: r }); if (row) { S.re = null; toast('Rules saved. Matching creators are being added'); renderMain(); } break; }
+    case 'rqask': { const w = a.dataset.w; const note = ($('rqnote') || {}).value || null; const { data, error } = await sb.from('review_requests').insert({ submission_id: S.open, requested_for: w, requested_by: ME, note: note && note.trim() ? note.trim() : null }).select().single(); if (error) { toast("Couldn't send the request."); console.error(error); break; } if (!RR.some((r) => r.id === data.id)) RR.push(data); toast('Asked ' + (w === ME ? 'yourself' : dispName(w)) + ' to review'); renderOverlays(); renderMain(); renderViews(); break; }
+    case 'rqdone': { const rid = +a.dataset.r; const { error } = await sb.from('review_requests').update({ done_at: new Date().toISOString(), done_by: ME }).eq('id', rid); if (error) { toast("Couldn't update the request."); break; } RR = RR.filter((r) => r.id !== rid); renderOverlays(); renderMain(); renderViews(); break; }
     case 'cmpdiff': S.cmpDiff = !S.cmpDiff; renderOverlays(); break;
     case 'cmprm': { const i = S.cmp.indexOf(a.dataset.id); if (i >= 0) S.cmp.splice(i, 1); if (S.cmp.length < 2) S.cmpOpen = false; renderOverlays(); renderMain(); renderTray(); break; }
     case 'cmpclear': S.cmp = []; renderMain(); renderTray(); break;
@@ -1064,10 +1199,11 @@ document.addEventListener('submit', async (e) => {
   if (e.target.id !== 'newboard') return; e.preventDefault(); const n = $('nbname').value.trim(); if (!n) return;
   const { data, error } = await sb.from('boards').insert({ name: n, description: $('nbdesc').value.trim() || null, created_by: ME }).select().single();
   if (error) { toast("Couldn't create the board."); console.error(error); return; }
-  if (!BOARDS.some((b) => b.id === data.id)) BOARDS.push(boardFrom(data)); toast('Board created'); render();
+  if (!BOARDS.some((b) => b.id === data.id)) BOARDS.push(boardFrom(data)); toast('Board created. Add rules to fill it automatically'); S.board = data.id; S.re = { bid: data.id, r: {} }; render(); window.scrollTo({ top: 0 });
 });
 document.addEventListener('change', async (e) => {
   const t = e.target;
+  if (t.dataset.rk && S.re) { setRule(S.re.r, t.dataset.rk, t.value === '' ? null : +t.value); renderMain(); return; }
   if (t.dataset.field && S.open) { const map = { owner: 'owner', type: 'type', rem: 'rem', tier: 'tier' }; if (await setCRM(S.open, { [map[t.dataset.field]]: t.value })) toast('Saved'); return; }
   if (t.id === 'f-rights' && S.open) { if (await setCRM(S.open, { rightsStart: t.value || null })) toast('Saved'); render(); return; }
   if (t.id === 'ottpl') { S.otTpl = t.value; const el = $('otbody'); if (el) el.value = ''; renderOverlays(); return; }
@@ -1106,6 +1242,7 @@ function subscribe() {
   on('scores', (p) => { const s = p.new; if (!s || !s.submission_id) return; (CRM[s.submission_id] || (CRM[s.submission_id] = blankCRM())).scores[s.reviewer] = { cam: s.cam, prod: s.prod, fit: s.fit }; });
   on('activity', (p) => { const a = p.new; if (!a || !a.submission_id) return; const cr = CRM[a.submission_id] || (CRM[a.submission_id] = blankCRM()); if (!cr.log.some((x) => x.id === a.id)) cr.log.unshift({ id: a.id, at: a.at, by: a.actor, text: a.action }); });
   on('boards', (p) => { const b = p.new; if (!b || !b.id) return; const i = BOARDS.findIndex((x) => x.id === b.id); if (b.archived) { if (i >= 0) BOARDS.splice(i, 1); } else if (i >= 0) BOARDS[i] = boardFrom(b); else BOARDS.push(boardFrom(b)); });
+  on('review_requests', (p) => { const r = p.new; if (!r || !r.id) return; RR = RR.filter((x) => x.id !== r.id); if (!r.done_at) RR.push(r); });
   on('board_members', (p) => { const m = p.new; if (!m || !m.board_id) return; MEMBERS.set(m.board_id + '|' + m.submission_id, m.active); });
   ch.on('postgres_changes', { event: '*', schema: 'public', table: 'sync_runs' }, (p) => { if (p.new && p.new.finished_at) setTimeout(() => checkSync(p.new), 1500); });
   ch.subscribe();

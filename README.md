@@ -41,7 +41,7 @@ Optional repository variables: `JOTFORM_FORM_ID` (default `262455225676261`), `J
 ## Common changes
 
 - **Sync frequency:** edit `LAUNCH_DAY`, `LAUNCH_INTERVAL_MIN` and `DAY_INTERVAL_MIN` in `.github/workflows/sync.yml`.
-- **Auto-updating boards:** a board with `rules` (in the `boards` table) adds matching applicants automatically. Keys: `lanes_any`, `can_all`, `langs_all`, `provinces_any`, `provinces_none`, `min_followers` (+ optional `platforms`), `partnership_ads`, `gender_any`, `age_min`, `age_max`.
+- **Board rules:** set them in the app (Boards → open a board → Add rules / Edit rules). Stored as `rules` (in the `boards` table) adds matching applicants automatically. Keys: `lanes_any`, `can_all`, `langs_all`, `provinces_any`, `provinces_none`, `min_followers` (+ optional `platforms`), `partnership_ads`, `gender_any`, `age_min`, `age_max`.
 - **Run a sync now:** Actions tab → Jotform sync → Run workflow.
 - **A form question was renamed or added:** update the matching pattern in `sync/mapping.mjs`. The sync log lists questions it could not match.
 - **Stores open or close:** update `docs/stores.js` (taken from the jdsports.ca store locator).
