@@ -1077,7 +1077,8 @@ async function checkSync(row) {
     if (!r) return;
     const changed = !LAST_SYNC || r.id !== LAST_SYNC.id || r.finished_at !== LAST_SYNC.finished_at; LAST_SYNC = r;
     const asked = refreshDone(r);
-    if (changed && r.finished_at) { const d = await loadApplications(); applyIncoming(d); if (asked && !d.added.length) toast(r.error ? 'Refresh failed: ' + r.error.slice(0, 80) : 'Up to date. No new applications'); }
+    const didWork = (r.inserted || 0) + (r.updated || 0) + (r.files_copied || 0) > 0;
+    if (changed && r.finished_at && (didWork || asked)) { const d = await loadApplications(); applyIncoming(d); if (asked && !d.added.length) toast(r.error ? 'Refresh failed: ' + r.error.slice(0, 80) : 'Up to date. No new applications'); }
     renderSync();
   } catch (e) { console.error(e); } finally { syncing = false; }
 }
