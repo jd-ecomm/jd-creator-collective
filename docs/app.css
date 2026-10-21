@@ -558,3 +558,12 @@ button.pbar:hover{background:var(--s1)}
 .danger.armed{background:var(--st-dec);color:#000;border-color:var(--st-dec)}
 .dangerzone{margin-top:20px;padding:12px 14px;border:1px dashed rgba(224,122,110,.4);border-radius:12px;display:grid;gap:8px;font-size:12px;color:var(--fg2)}
 .head-ph{background:linear-gradient(135deg,var(--lime),var(--teal) 55%,var(--royal))}
+
+/* ===== smoothness ===== */
+.card{content-visibility:auto;contain-intrinsic-size:auto 470px}
+.cm{background:linear-gradient(110deg,var(--s2) 30%,var(--s3) 50%,var(--s2) 70%);background-size:220% 100%;animation:shimmer 1.4s linear infinite}
+.cm.ld{animation:none;background:var(--s2)}
+@keyframes shimmer{to{background-position:-220% 0}}
+.cm img,.mini img,.strip img,.thumbs img,.media-main img,td img,.pcr img{opacity:0;transition:opacity .25s ease}
+.cm img.ld,.mini img.ld,.strip img.ld,.thumbs img.ld,.media-main img.ld,td img.ld,.pcr img.ld{opacity:1}
+@media (prefers-reduced-motion:reduce){.cm{animation:none}.cm img,.mini img,.strip img,.thumbs img,.media-main img,td img,.pcr img{opacity:1}}

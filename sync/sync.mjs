@@ -94,19 +94,27 @@ async function makeVariants(path) {
 }
 async function backfillVariants() {
   const { data: rows } = await db.from('applications').select('submission_id,headshot_path,setup_paths,previews,variants');
-  let made = 0;
-  for (const r of rows || []) {
-    if (Date.now() - T0 > 15 * 60 * 1000) { console.log('Time limit reached, the next run continues the photo resizing'); break; }
-    const v = { ...(r.variants || {}) };
-    const paths = [r.headshot_path, ...(r.setup_paths || []), ...((r.previews || []).map((p) => p.thumb_path))].filter((p) => p && !v[p]);
-    if (!paths.length) continue;
-    for (let i = 0; i < paths.length; i += 4) {
-      const out = await Promise.all(paths.slice(i, i + 4).map(makeVariants));
-      out.forEach((o, j) => { if (o) { v[paths[i + j]] = o; made++; } });
-    }
-    if (!DRY) await db.from('applications').update({ variants: v }).eq('submission_id', r.submission_id);
+  const byId = new Map((rows || []).map((r) => [r.submission_id, { ...(r.variants || {}) }]));
+  // headshots first (they fill the wall), then setup photos, then link preview images
+  const jobs = [];
+  for (const tier of [0, 1, 2]) for (const r of rows || []) {
+    const v = byId.get(r.submission_id);
+    const ps = tier === 0 ? [r.headshot_path] : tier === 1 ? (r.setup_paths || []) : (r.previews || []).map((p) => p.thumb_path);
+    ps.filter((p) => p && !v[p]).forEach((p) => jobs.push([r.submission_id, p]));
   }
-  if (made) console.log('Made fast versions of', made, 'photos');
+  if (!jobs.length) return;
+  console.log('Making fast versions of', jobs.length, 'photos');
+  const dirty = new Set(); let made = 0;
+  const flush = async () => { for (const id of dirty) if (!DRY) await db.from('applications').update({ variants: byId.get(id) }).eq('submission_id', id); dirty.clear(); };
+  for (let i = 0; i < jobs.length; i += 8) {
+    if (Date.now() - T0 > 15 * 60 * 1000) { console.log('Time limit reached, the next run continues the photo resizing'); break; }
+    const batch = jobs.slice(i, i + 8);
+    const out = await Promise.all(batch.map(([, p]) => makeVariants(p)));
+    out.forEach((o, j) => { if (o) { byId.get(batch[j][0])[batch[j][1]] = o; dirty.add(batch[j][0]); made++; } });
+    if (dirty.size >= 10) await flush();
+  }
+  await flush();
+  console.log('Made fast versions of', made, 'photos');
 }
 
 // ------------------------------------------------------------- geocoding (OpenStreetMap, cached)

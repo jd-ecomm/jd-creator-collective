@@ -230,8 +230,17 @@ const fmtDate = (d, o) => new Date(d).toLocaleDateString('en-CA', o || { month: 
 const mask = (s) => { if (!s) return 'Not given'; if (s.includes('@')) { const [u, d] = s.split('@'); return u[0] + '•••@' + d; } return s.replace(/\d(?=\d{4})/g, '•'); };
 
 /* ---------------------------------------------------------------- render */
-let rT = null;
-function scheduleRender() { clearTimeout(rT); rT = setTimeout(render, 120); }
+let rT = null; const DIRTY = new Set(); let STRUCT = false;
+function scheduleRender(id, structural) { if (id) DIRTY.add(id); if (structural) STRUCT = true; clearTimeout(rT); rT = setTimeout(flushLive, 150); }
+// When nothing about the list's membership or order can change, update just the affected cards
+const canPatch = () => S.view === 'wall' && !STRUCT && !fCount() && !S.q && S.sort !== 'score';
+function patchCards(ids) { ids.forEach((id) => { const el = document.querySelector(`article.card[data-id="${CSS.escape(id)}"]`); const c = C.find((x) => x.id === id); if (el && c) el.outerHTML = cardHTML(c); }); }
+function flushLive() {
+  const ids = [...DIRTY]; DIRTY.clear();
+  if (canPatch()) { patchCards(ids); renderViews(); renderActive(); renderRail(); if (S.open && ids.includes(S.open) || S.cast || S.share) renderOverlays(); }
+  else render();
+  STRUCT = false;
+}
 function render() { if (!C) return; renderViews(); renderActive(); renderRail(); renderMain(); renderTray(); renderOverlays(); renderSync(); }
 function renderSync() {
   const el = $('syncchip'); if (!el) return;
@@ -705,18 +714,18 @@ async function setCRM(id, patch) {
   const cr = CRM[id]; const before = {}; const row = {};
   for (const [k, v] of Object.entries(patch)) { before[k] = cr[k]; cr[k] = v; row[DBF[k]] = v; }
   if ('status' in patch && patch.status !== before.status) cr.stageSince = new Date().toISOString();
-  S.cast ? renderOverlays() : render();
+  if (S.cast) renderOverlays(); else { DIRTY.add(id); flushLive(); }
   const { error } = await sb.from('crm_state').update(row).eq('submission_id', id);
   if (error) { Object.assign(cr, before); toast("Couldn't save that change. Check your connection and try again."); console.error(error); render(); return false; }
   return true;
 }
 async function logAct(id, text) { const { error } = await sb.from('activity').insert({ submission_id: id, actor: ME, action: text }); if (error) console.error(error); }
 async function setStatus(id, s) {
-  const prev = CRM[id].status; if (prev === s) return; const ok = await setCRM(id, { status: s }); render();
+  const prev = CRM[id].status; if (prev === s) return; const ok = await setCRM(id, { status: s }); if (!canPatch()) render();
   if (ok) toast((C.find((c) => c.id === id) || {}).name + ' moved to ' + s, async () => { await setCRM(id, { status: prev }); render(); });
 }
 async function toggleFav(id) { const on = !CRM[id].fav; if (await setCRM(id, { fav: on })) toast(on ? 'Added to favourites' : 'Removed from favourites'); }
-async function addTag(t) { t = t.trim(); if (!t || !S.open) return; const cr = CRM[S.open]; if (cr.tags.some((x) => x.toLowerCase() === t.toLowerCase())) return; await setCRM(S.open, { tags: [...cr.tags, t] }); const el = $('tagin'); if (el) el.value = ''; render(); }
+async function addTag(t) { t = t.trim(); if (!t || !S.open) return; const cr = CRM[S.open]; if (cr.tags.some((x) => x.toLowerCase() === t.toLowerCase())) return; const el = $('tagin'); if (el) el.value = ''; await setCRM(S.open, { tags: [...cr.tags, t] }); }
 async function rate(cid, k, v) {
   const cr = CRM[cid]; const o = { ...(cr.scores[ME] || {}) }; o[k] = o[k] === v ? null : v; cr.scores[ME] = o; S.cast ? renderOverlays() : render();
   const { error } = await sb.from('scores').upsert({ submission_id: cid, reviewer: ME, cam: o.cam || null, prod: o.prod || null, fit: o.fit || null }, { onConflict: 'submission_id,reviewer' });
@@ -731,6 +740,11 @@ async function toggleBoard(cid, bid) {
 }
 async function copyText(txt, el) { try { await navigator.clipboard.writeText(txt); toast('Copied'); } catch (e) { if (el) { el.focus(); el.select(); } toast('Press Ctrl+C or Cmd+C to copy'); } }
 async function updateBoard(bid, row) { const { data, error } = await sb.from('boards').update(row).eq('id', bid).select().single(); if (error) { toast("Couldn't update the board."); console.error(error); return null; } const i = BOARDS.findIndex((b) => b.id === bid); if (data.archived) BOARDS.splice(i, 1); else BOARDS[i] = boardFrom(data); return data; }
+
+/* ---------------------------------------------------------------- image fade-in */
+document.addEventListener('load', (e) => { const t = e.target; if (t.tagName === 'IMG') { t.classList.add('ld'); const cm = t.closest('.cm'); if (cm) cm.classList.add('ld'); } }, true);
+document.addEventListener('error', (e) => { const t = e.target; if (t.tagName === 'IMG') { t.classList.add('ld'); const cm = t.closest('.cm'); if (cm) cm.classList.add('ld'); } }, true);
+new MutationObserver(() => { document.querySelectorAll('img:not(.ld)').forEach((im) => { if (im.complete && im.naturalWidth) { im.classList.add('ld'); const cm = im.closest('.cm'); if (cm) cm.classList.add('ld'); } }); }).observe(document.body, { childList: true, subtree: true });
 
 /* ---------------------------------------------------------------- events */
 document.addEventListener('click', async (e) => {
@@ -752,7 +766,7 @@ document.addEventListener('click', async (e) => {
     case 'closerail': $('rail').classList.remove('open'); break;
     case 'stage': setStatus(S.open, a.dataset.s); break;
     case 'addtag': addTag(a.dataset.t); break;
-    case 'rmtag': { const cr = CRM[S.open]; await setCRM(S.open, { tags: cr.tags.filter((t) => t !== a.dataset.t) }); render(); break; }
+    case 'rmtag': { const cr = CRM[S.open]; await setCRM(S.open, { tags: cr.tags.filter((t) => t !== a.dataset.t) }); break; }
     case 'addnote': { const v = $('notein').value.trim(); if (!v) { toast('Write a note first'); return; } const sid = S.open; $('notein').value = '';
       const { data, error } = await sb.from('notes').insert({ submission_id: sid, body: v, author: ME }).select().single();
       if (error) { toast("Couldn't save the note."); console.error(error); if ($('notein')) $('notein').value = v; return; }
@@ -820,7 +834,7 @@ document.addEventListener('submit', async (e) => {
 });
 document.addEventListener('change', async (e) => {
   const t = e.target;
-  if (t.dataset.field && S.open) { const map = { owner: 'owner', type: 'type', rem: 'rem', tier: 'tier' }; if (await setCRM(S.open, { [map[t.dataset.field]]: t.value })) toast('Saved'); render(); return; }
+  if (t.dataset.field && S.open) { const map = { owner: 'owner', type: 'type', rem: 'rem', tier: 'tier' }; if (await setCRM(S.open, { [map[t.dataset.field]]: t.value })) toast('Saved'); return; }
   if (t.id === 'f-rights' && S.open) { if (await setCRM(S.open, { rightsStart: t.value || null })) toast('Saved'); render(); return; }
   if (t.id === 'ottpl') { S.otTpl = t.value; const el = $('otbody'); if (el) el.value = ''; renderOverlays(); return; }
   if (t.id === 'castmode') { startCast(t.value); return; }
@@ -851,7 +865,7 @@ document.addEventListener('dragend', () => { S.drag = null; document.querySelect
 
 /* ---------------------------------------------------------------- live updates */
 function subscribe() {
-  const on = (table, fn) => ch.on('postgres_changes', { event: '*', schema: 'public', table }, (p) => { try { fn(p); } catch (e) { console.error(e); } scheduleRender(); });
+  const on = (table, fn) => ch.on('postgres_changes', { event: '*', schema: 'public', table }, (p) => { try { fn(p); } catch (e) { console.error(e); } const r = p.new || {}; scheduleRender(r.submission_id, table === 'boards' || table === 'board_members'); });
   const ch = sb.channel('crm-live');
   on('crm_state', (p) => { if (p.new && p.new.submission_id) fromState(p.new); });
   on('notes', (p) => { const n = p.new; if (!n || !n.submission_id) return; const cr = CRM[n.submission_id] || (CRM[n.submission_id] = blankCRM()); const i = cr.notes.findIndex((x) => x.id === n.id); const o = { id: n.id, by: n.author, at: n.created_at, text: n.body }; if (i >= 0) cr.notes[i] = o; else cr.notes.push(o); });
