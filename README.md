@@ -25,6 +25,8 @@ Jotform stays the place applicants submit. The sync never writes back to Jotform
 - If a submission is deleted in Jotform, the next sync erases it here too.
 - The app never deletes rows directly. Removing from boards or archiving boards flips a flag.
 
+- Sync logs never contain names, IDs, emails or file links, because this repository and its Actions logs are public.
+
 ## Settings
 
 GitHub repository secrets (Settings → Secrets and variables → Actions):

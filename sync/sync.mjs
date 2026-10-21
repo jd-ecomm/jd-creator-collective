@@ -61,12 +61,12 @@ async function download(url, withKey) {
 async function copyFile(url, destNoExt, isJotform = true) {
   let f = await download(url, false);
   if (!f && isJotform) f = await download(url, true);
-  if (!f) { console.warn('  could not download', url.slice(0, 80)); return null; }
-  if (f.buf.length > 15 * 1024 * 1024) { console.warn('  file too large, skipped', url.slice(0, 80)); return null; }
+  if (!f) { console.warn('  could not download a file'); return null; }
+  if (f.buf.length > 15 * 1024 * 1024) { console.warn('  file too large, skipped'); return null; }
   const path = `${destNoExt}.${EXT[f.type] || (url.split('?')[0].split('.').pop() || 'bin').slice(0, 5).toLowerCase()}`;
   if (DRY) return path;
   const { error } = await db.storage.from('media').upload(path, f.buf, { contentType: f.type, upsert: true });
-  if (error) { console.warn('  upload failed', path, error.message); return null; }
+  if (error) { console.warn('  upload failed', error.message); return null; }
   return path;
 }
 
@@ -81,7 +81,7 @@ async function makeVariants(path) {
   let buf = Buffer.from(await data.arrayBuffer());
   if (isHeic(buf, path)) {
     try { buf = Buffer.from(await heicConvert({ buffer: buf, format: 'JPEG', quality: 0.9 })); }
-    catch (e) { console.warn('  could not convert iPhone photo', path, e.message); return { failed: true, v: 2 }; }
+    catch (e) { console.warn('  could not convert an iPhone photo', e.message); return { failed: true, v: 2 }; }
   }
   const stem = path.replace(/\.[^./]+$/, '');
   try {
@@ -95,7 +95,7 @@ async function makeVariants(path) {
     }
     return { sm: stem + '.sm.webp', lg: stem + '.lg.webp' };
   } catch (e) {
-    console.warn('  could not resize', path, e.message);
+    console.warn('  could not resize a photo', e.message);
     return { failed: true, v: 2 };
   }
 }
@@ -140,7 +140,7 @@ async function geocode(city, province) {
     const r = await fetch(u, { headers: { 'User-Agent': UA } });
     const j = r.ok ? await r.json() : [];
     if (j[0]) res = { lat: +j[0].lat, lng: +j[0].lon };
-  } catch (e) { console.warn('  geocode failed', key, e.message); return null; }
+  } catch (e) { console.warn('  geocode failed', e.message); return null; }
   if (!DRY) await db.from('geocache').upsert({ key, lat: res?.lat ?? null, lng: res?.lng ?? null });
   return res;
 }
@@ -243,7 +243,7 @@ async function main() {
 
     // erase applicants the team marked for deletion
     for (const t of (tomb || []).filter((r) => !r.purged_at)) {
-      console.log('Erasing applicant marked for deletion', t.submission_id);
+      console.log('Erasing an applicant marked for deletion');
       await purge(t.submission_id);
       if (!DRY) await db.from('deleted_submissions').update({ purged_at: new Date().toISOString() }).eq('submission_id', t.submission_id);
       byId.delete(t.submission_id);
@@ -259,7 +259,7 @@ async function main() {
       unmatched.forEach((u) => unmatchedAll.add(u));
       // the form says data is not stored without consent: skip, and erase if it was stored before
       if (row.consent === false) {
-        if (byId.has(id)) { console.log('Consent withdrawn, erasing', id); await purge(id); byId.delete(id); }
+        if (byId.has(id)) { console.log('Consent withdrawn, erasing an applicant'); await purge(id); byId.delete(id); }
         continue;
       }
       const hash = sha(JSON.stringify(sub.answers));
@@ -273,7 +273,7 @@ async function main() {
         }
         continue;
       }
-      console.log(`${prev ? 'Updating' : 'Adding'} ${row.full_name || id}`);
+      // no names, IDs or links in logs: the repository (and so its run logs) is public
 
       // photos: copy each Jotform file once
       const sources = { ...(prev?.media_sources || {}) };
@@ -302,7 +302,7 @@ async function main() {
       row.synced_at = new Date().toISOString();
       if (!DRY) {
         const { error } = await db.from('applications').upsert(row, { onConflict: 'submission_id' });
-        if (error) throw new Error(`Saving ${id}: ${error.message}`);
+        if (error) throw new Error(`Saving an applicant: ${error.message}`);
       }
       prev ? stats.updated++ : stats.inserted++;
     }
@@ -311,7 +311,7 @@ async function main() {
     const missing = [...byId.keys()].filter((id) => !activeIds.has(id));
     if (missing.length && subs.length >= 0.9 * byId.size) {
       for (const id of missing) {
-        console.log('Removing submission deleted in Jotform', id);
+        console.log('Removing a submission deleted in Jotform');
         await purge(id);
       }
     }
@@ -320,7 +320,7 @@ async function main() {
     console.log('Done', stats);
     if (!DRY) await db.from('sync_runs').update({ ...stats, finished_at: new Date().toISOString() }).eq('id', run.id);
   } catch (e) {
-    console.error(e);
+    console.error('Sync error:', String(e && e.message || e).replace(/\S+@\S+/g, '[email]').slice(0, 300));
     if (!DRY && run?.id) await db.from('sync_runs').update({ ...stats, finished_at: new Date().toISOString(), error: String(e.message || e).slice(0, 500) }).eq('id', run.id);
     throw e;
   }
