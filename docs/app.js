@@ -848,6 +848,14 @@ $('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault(); const email = $('loginEmail').value.trim().toLowerCase();
   if (!allowedEmail(email)) { showLogin('Use your JD email address (' + CFG.allowedDomains.map((d) => '@' + d).join(' or ') + ').', true); return; }
   const btn = e.target.querySelector('button'); btn.disabled = true;
+  const pass = $('loginPass').value;
+  if (pass) {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+    btn.disabled = false; $('loginPass').value = '';
+    if (error) { showLogin(/invalid/i.test(error.message) ? 'That email and password do not match.' : "Couldn't sign in: " + error.message, true); return; }
+    if (data.session) start(data.session);
+    return;
+  }
   const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: true } });
   btn.disabled = false;
   if (error) showLogin(/rate|limit/i.test(error.message) ? 'Too many sign-in emails were sent. Wait a few minutes and try again.' : "Couldn't send the email: " + error.message, true);

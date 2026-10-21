@@ -27,9 +27,10 @@
   <div class="login">
     <form class="login-card" id="loginForm">
       <h1 class="dsp">Sign in</h1>
-      <p>Enter your JD email and we'll send you a sign-in link. No password needed.</p>
+      <p>Sign in with your JD email and password. No password yet? Leave it blank and we'll email you a sign-in link.</p>
       <input id="loginEmail" type="email" autocomplete="email" placeholder="you@jdcanada.ca" required aria-label="JD email address">
-      <button class="btn pri" type="submit" style="justify-content:center;padding:12px">Email me a sign-in link</button>
+      <input id="loginPass" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password">
+      <button class="btn pri" type="submit" style="justify-content:center;padding:12px">Sign in</button>
       <div id="loginMsg" aria-live="polite"></div>
     </form>
   </div>
