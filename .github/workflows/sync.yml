@@ -2,11 +2,15 @@ name: Jotform sync
 
 on:
   schedule:
-    - cron: "7 * * * *"   # hourly, at 7 minutes past. Change to "7 11 * * *" for daily (11:07 UTC = 4:07am Vancouver).
-  workflow_dispatch: {}    # "Run workflow" button for an on-demand refresh
-  push:                    # also runs when the sync code itself changes
+    - cron: "7 * * * *"     # hourly, at 7 minutes past
+    - cron: "*/5 * * * *"   # every 5 minutes, but only acts on LAUNCH_DAY below (launch-day boost)
+  workflow_dispatch: {}      # "Run workflow" button for an on-demand refresh
+  push:                      # also runs when the sync code itself changes
     branches: [main]
     paths: ["sync/**", ".github/workflows/sync.yml"]
+
+env:
+  LAUNCH_DAY: "2026-10-21"   # Vancouver date for 5-minute syncs. Other days, the 5-minute schedule does nothing.
 
 concurrency:
   group: jotform-sync
@@ -20,12 +24,26 @@ jobs:
       run:
         working-directory: sync
     steps:
+      - name: Decide whether to run
+        id: gate
+        working-directory: .
+        run: |
+          today=$(TZ=America/Vancouver date +%F)
+          if [ "${{ github.event.schedule }}" = "*/5 * * * *" ] && [ "$today" != "$LAUNCH_DAY" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"; echo "5-minute schedule is only active on $LAUNCH_DAY (today is $today). Skipping."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'true'
       - uses: actions/setup-node@v4
+        if: steps.gate.outputs.run == 'true'
         with:
           node-version: 20
       - run: npm install --no-audit --no-fund
+        if: steps.gate.outputs.run == 'true'
       - run: node sync.mjs
+        if: steps.gate.outputs.run == 'true'
         env:
           JOTFORM_API_KEY: ${{ secrets.JOTFORM_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
