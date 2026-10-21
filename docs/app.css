@@ -589,3 +589,41 @@ button.pbar:hover{background:var(--s1)}
 .jumps{right:110px}
 .mapctl{grid-template-columns:repeat(3,auto);display:grid}
 @media (max-width:900px){.mapctl{grid-template-columns:auto}.jumps{right:56px}}
+
+/* ---- map v2: province focus, photo pins, area detail */
+.prov{cursor:zoom-in;transition:fill-opacity .3s}
+.prov.sel{cursor:default;stroke:var(--lime);stroke-width:1.6px}
+.prov.dim{fill-opacity:.05!important}
+.prov:hover:not(.sel){stroke:var(--lime)}
+.pin .b{stroke-width:2.5px}
+.av{cursor:pointer}
+.av .avb{fill:#000;stroke:var(--lime);stroke-width:2px}
+.av .avring{fill:none;stroke-width:3px}
+.av.fav .avb{stroke:#fff;stroke-width:3px}
+.av:hover .avb,.av.hl .avb,.av:focus .avb{stroke:#fff;stroke-width:4px}
+.av:hover,.av.hl{filter:drop-shadow(0 0 6px rgba(168,240,76,.7))}
+.clbl,.slbl{font-family:var(--body,Montserrat),sans-serif;font-weight:700;font-size:12px;fill:var(--fg);paint-order:stroke;stroke:#000;stroke-width:3px;stroke-linejoin:round;text-anchor:middle;pointer-events:none;letter-spacing:.02em}
+.slbl{text-anchor:start;font-size:11px;fill:#cfd8ff}
+.mapbox.active{outline:2px solid var(--lime);outline-offset:-2px}
+.mapbox:not(.active) svg{cursor:pointer}
+.ib.big{width:40px;height:40px;font-size:20px;font-weight:700}
+.crumb{font-size:12px;font-weight:700}
+.crumb .linkbtn{color:var(--lime)}
+.arows{display:grid;gap:4px;max-height:340px;overflow:auto;padding-right:4px}
+.arow{display:grid;grid-template-columns:40px minmax(0,1fr);gap:10px;align-items:center;padding:5px;border-radius:8px;border:0;background:none;color:var(--fg);text-align:left;cursor:pointer;width:100%}
+.arow:hover{background:var(--s2)}
+.arow img{width:40px;height:40px;border-radius:50%;object-fit:cover;display:block;border:2px solid var(--line)}
+.arow .n{display:block;font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arow .m{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--fg2)}
+.avpop{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;background:none;border:0;color:var(--fg);text-align:left;cursor:pointer;padding:4px;width:100%}
+.avpop img{width:96px;height:120px;object-fit:cover;border-radius:8px;display:block}
+.avpop .b{display:grid;gap:3px;align-content:start;min-width:0}
+.avpop .n{font-size:22px;line-height:1}
+.avpop .m{font-size:11px;color:var(--fg2);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.avpop .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+
+/* ---- new creators arriving mid-session */
+.newpill{position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:60;background:var(--lime);color:#000;border:0;border-radius:999px;padding:9px 18px;font-family:var(--display);font-style:italic;font-weight:800;text-transform:uppercase;font-size:16px;letter-spacing:.02em;box-shadow:0 8px 24px rgba(0,0,0,.5);cursor:pointer;animation:pillin .35s ease-out}
+@keyframes pillin{from{opacity:0;transform:translate(-50%,-12px)}to{opacity:1;transform:translate(-50%,0)}}
+.card.isnew{box-shadow:0 0 0 2px var(--lime)}
+.newbadge{position:absolute;top:8px;left:8px;z-index:2;background:var(--lime);color:#000;font-family:var(--display);font-style:italic;font-weight:800;font-size:13px;text-transform:uppercase;padding:2px 8px;border-radius:4px}
