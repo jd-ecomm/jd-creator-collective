@@ -567,3 +567,25 @@ button.pbar:hover{background:var(--s1)}
 .cm img,.mini img,.strip img,.thumbs img,.media-main img,td img,.pcr img{opacity:0;transition:opacity .25s ease}
 .cm img.ld,.mini img.ld,.strip img.ld,.thumbs img.ld,.media-main img.ld,td img.ld,.pcr img.ld{opacity:1}
 @media (prefers-reduced-motion:reduce){.cm{animation:none}.cm img,.mini img,.strip img,.thumbs img,.media-main img,td img,.pcr img{opacity:1}}
+
+/* ===== loading spinners ===== */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{display:inline-block;width:28px;height:28px;border-radius:50%;border:3px solid rgba(255,255,255,.14);border-top-color:var(--lime);animation:spin .8s linear infinite}
+.cm::after,.media-main::after,.mm::after,.lbs::after{content:"";position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;border:3px solid rgba(255,255,255,.14);border-top-color:var(--lime);animation:spin .8s linear infinite;pointer-events:none;z-index:1}
+.cm.ld::after,.media-main.ld::after,.mm.ld::after,.lbs.ld::after{display:none}
+.mm{position:relative}
+.lbs::after{z-index:0}
+.loading .spinner{width:36px;height:36px;margin-bottom:14px}
+
+/* ===== map ===== */
+.mapbox svg{width:100%;height:clamp(320px,58vh,560px);display:block}
+.mapwrap{grid-template-columns:minmax(0,1fr) 270px;align-items:start}
+.pin.cluster .b{fill:#000;stroke:var(--lime);stroke-width:3px}
+.pin.cluster text{fill:var(--lime)}
+.pin.cluster:hover .b,.pin.cluster.on .b{fill:var(--lime)}
+.pin.cluster:hover text,.pin.cluster.on text{fill:#000}
+.pin text{font-size:13px}
+.maphint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.78);color:#fff;font-weight:600;font-size:13px;border-radius:999px;padding:10px 16px;pointer-events:none;z-index:6}
+.jumps{right:110px}
+.mapctl{grid-template-columns:repeat(3,auto);display:grid}
+@media (max-width:900px){.mapctl{grid-template-columns:auto}.jumps{right:56px}}

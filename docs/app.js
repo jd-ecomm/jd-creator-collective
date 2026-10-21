@@ -625,24 +625,27 @@ function insightsHTML(L) {
 }
 
 /* ---------------------------------------------------------------- map */
-const JUMPS = [{ k: 'ca', l: 'All Canada' }, { k: 'bc', l: 'Lower Mainland', c: [-122.9, 49.15], z: 12 }, { k: 'pr', l: 'Prairies', c: [-106, 51.6], z: 3.2 }, { k: 'gta', l: 'Greater Toronto', c: [-79.55, 43.7], z: 13 }, { k: 'qc', l: 'Montréal to Québec', c: [-72.8, 46.1], z: 5.5 }, { k: 'atl', l: 'Atlantic', c: [-59, 46.8], z: 3.4 }];
+// Compact map: starts with all of Canada in view, pins cluster when they overlap,
+// scroll the page normally (Ctrl or pinch to zoom), drag to pan, click a cluster to zoom in.
+const JUMPS = [{ k: 'ca', l: 'All Canada' }, { k: 'fit', l: 'Where creators are' }, { k: 'gta', l: 'Greater Toronto', c: [-79.55, 43.72], z: 9 }, { k: 'qc', l: 'Montréal to Québec', c: [-72.9, 46.0], z: 4.5 }, { k: 'bc', l: 'Lower Mainland', c: [-122.9, 49.18], z: 9 }, { k: 'pr', l: 'Prairies', c: [-106, 51.6], z: 2.6 }, { k: 'atl', l: 'Atlantic', c: [-60, 46.6], z: 3 }];
+const MW = 1000, MH = 620;
 let MAP = null, hideT = null, TOPO = null;
 function mapHTML(L) {
   const loc = L.filter((c) => c.lat != null); const byP = {}; L.forEach((c) => (byP[c.prov] = (byP[c.prov] || 0) + 1));
   const cities = {}; loc.forEach((c) => { const k = c.city + '|' + c.prov; (cities[k] = cities[k] || []).push(c); });
   const pmax = Math.max(1, ...Object.values(byP)); const sel = S.f.province || []; const provs = uniq([...Object.keys(byP), ...STORES.map((s) => s.prov)]).map((k) => [k, byP[k] || 0]).sort((a, b) => b[1] - a[1]);
   const gaps = STORES.filter((s) => !loc.some((c) => km(c.lat, c.lng, s.lat, s.lng) <= 25)).length;
-  return `<div class="mapwrap"><div class="mapbox" id="mapbox"><svg id="mapsvg" viewBox="0 0 1000 680" role="img" aria-label="Map of creators and JD stores across Canada"></svg>
+  return `<div class="mapwrap"><div class="mapbox" id="mapbox"><svg id="mapsvg" viewBox="0 0 ${MW} ${MH}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Map of creators and JD stores across Canada"></svg>
     <div class="jumps">${JUMPS.map((j) => `<button type="button" class="jump" data-act="jump" data-k="${j.k}" aria-pressed="${S.jump === j.k}">${j.l}</button>`).join('')}</div>
-    <div class="mapctl"><button type="button" class="ib" data-act="zin" aria-label="Zoom in">+</button><button type="button" class="ib" data-act="zout" aria-label="Zoom out">−</button></div>
+    <div class="mapctl"><button type="button" class="ib" data-act="zin" aria-label="Zoom in">+</button><button type="button" class="ib" data-act="zout" aria-label="Zoom out">−</button><button type="button" class="ib" data-act="jump" data-k="ca" aria-label="Reset view" title="Reset view">⟲</button></div>
     <div class="maplegend"><button type="button" data-act="lgc" aria-pressed="${S.showCreators}"><span class="lg-c"></span>Creators</button><span><span class="lg-r"></span>Applied this week</span><button type="button" data-act="lgs" aria-pressed="${S.showStores}"><span class="lg-s"></span>JD stores (${STORES.length})</button></div>
+    <div class="maphint" id="maphint" hidden>Hold Ctrl (or ⌘) and scroll to zoom</div>
     <div class="pop" id="pop" hidden></div></div>
   <aside class="mapside">
     <div class="msum"><div class="stat"><div class="k">Creators</div><div class="v num">${loc.length}</div></div><div class="stat"><div class="k">Cities</div><div class="v num">${Object.keys(cities).length}</div></div><div class="stat"><div class="k">Store gaps</div><div class="v num" style="color:var(--warn)">${gaps}</div></div></div>
-    ${L.length > loc.length ? `<div class="muted" style="font-size:11.5px">${L.length - loc.length} creator${L.length - loc.length > 1 ? 's' : ''} not shown: city not found.</div>` : ''}
+    <div class="muted" style="font-size:11.5px">Drag to move. Ctrl + scroll or pinch to zoom. Click a numbered bubble to zoom into that area.${L.length > loc.length ? ` ${L.length - loc.length} creator${L.length - loc.length > 1 ? 's' : ''} not shown: city not found.` : ''}</div>
     <div><h3>By province</h3>${provs.map(([k, n]) => `<button type="button" class="pbar" data-act="facet" data-g="province" data-v="${esc(k)}" aria-pressed="${sel.includes(k)}"><span>${esc(PROV[k] || k || 'Unknown')}</span><em class="num">${n} · ${STORES.filter((s) => s.prov === k).length} stores</em><span class="track"><i style="width:${(n / pmax) * 100}%"></i></span></button>`).join('')}</div>
-    <div><h3>Top cities</h3>${Object.entries(cities).sort((a, b) => b[1].length - a[1].length).slice(0, 6).map(([k, v]) => `<button type="button" class="pbar" data-act="city" data-c="${esc(k)}"><span>${esc(k.replace('|', ', '))}</span><em class="num">${v.length}</em></button>`).join('') || '<div class="muted">No creators match these filters</div>'}</div>
-    <div class="muted" style="font-size:11px">Store gaps: stores with no creator in view within 25 km. Hover a white diamond to see a store.</div>
+    <div><h3>Top cities</h3>${Object.entries(cities).sort((a, b) => b[1].length - a[1].length).slice(0, 8).map(([k, v]) => `<button type="button" class="pbar" data-act="city" data-c="${esc(k)}"><span>${esc(k.replace('|', ', '))}</span><em class="num">${v.length}</em></button>`).join('') || '<div class="muted">No creators match these filters</div>'}</div>
   </aside></div>`;
 }
 async function drawMap(L) {
@@ -650,8 +653,9 @@ async function drawMap(L) {
   if (!window.d3 || !window.topojson) { $('mapbox').innerHTML = '<div class="mapfail">The map could not load. Check your connection and reload the page.</div>'; return; }
   if (!TOPO) { try { TOPO = await fetch('ca.topo.json').then((r) => r.json()); } catch (e) { $('mapbox').innerHTML = '<div class="mapfail">The map could not load.</div>'; return; } }
   if (!document.body.contains(svgEl)) return;
-  const W = 1000, H = 680; const fc = topojson.feature(TOPO, TOPO.objects.p);
-  const proj = d3.geoConicConformal().rotate([96, 0]).parallels([49, 77]).fitExtent([[20, 64], [W - 20, H - 20]], { type: 'MultiPoint', coordinates: [[-139, 60], [-52.6, 47.5], [-123.5, 48.3], [-80, 42.2], [-95, 71], [-62, 60]] });
+  const fc = topojson.feature(TOPO, TOPO.objects.p);
+  // whole country in view, with room for the buttons along the top
+  const proj = d3.geoConicConformal().rotate([96, 0]).parallels([49, 77]).fitExtent([[16, 56], [MW - 16, MH - 16]], fc);
   const path = d3.geoPath(proj); const svg = d3.select(svgEl);
   const loc = L.filter((c) => c.lat != null); const byP = {}; L.forEach((c) => (byP[c.prov] = (byP[c.prov] || 0) + 1)); const pmax = Math.max(1, ...Object.values(byP));
   const g = svg.append('g');
@@ -659,36 +663,86 @@ async function drawMap(L) {
     .append('title').text((d) => d.properties.name + (byP[d.properties.code] ? ' · ' + byP[d.properties.code] + ' creator' + (byP[d.properties.code] > 1 ? 's' : '') : ''));
   const stores = STORES.map((s) => { const [x, y] = proj([s.lng, s.lat]); return { s, x, y, near: loc.filter((c) => km(c.lat, c.lng, s.lat, s.lng) <= 25) }; });
   const groups = {}; loc.forEach((c) => { const k = c.city + '|' + c.prov; (groups[k] = groups[k] || []).push(c); });
-  const pins = Object.entries(groups).map(([k, cs]) => { const [x, y] = proj([cs[0].lng, cs[0].lat]); return { k, cs, x, y, r: cs.length > 1 ? 11 + 3 * Math.sqrt(cs.length - 1) : 8, fresh: cs.some((c) => daysAgo(c) <= 7) }; }).sort((a, b) => b.cs.length - a.cs.length);
+  const pins = Object.entries(groups).map(([k, cs]) => { const [x, y] = proj([cs[0].lng, cs[0].lat]); return { k, cs, x, y, fresh: cs.some((c) => daysAgo(c) <= 7) }; });
   const kmPx = (() => { const a = proj([-79.38, 43.65]), b = proj([-79.38, 43.65 + 25 / 111]); return Math.hypot(a[0] - b[0], a[1] - b[1]); })();
-  const sg = g.append('g').style('display', S.showStores ? null : 'none').selectAll('g').data(stores).join('g').attr('class', 'spin').attr('tabindex', 0).attr('role', 'button').attr('aria-label', (d) => 'JD ' + d.s.name + ', ' + d.s.city);
+  const sLayer = g.append('g').style('display', S.showStores ? null : 'none');
+  const sg = sLayer.selectAll('g').data(stores).join('g').attr('class', 'spin').attr('tabindex', 0).attr('role', 'button').attr('aria-label', (d) => 'JD ' + d.s.name + ', ' + d.s.city);
   sg.append('circle').attr('class', 'halo').attr('r', kmPx);
-  const sm = sg.append('g'); sm.append('rect').attr('x', -4.5).attr('y', -4.5).attr('width', 9).attr('height', 9).attr('transform', 'rotate(45)');
-  const pg = g.append('g').style('display', S.showCreators ? null : 'none').selectAll('g').data(pins).join('g').attr('class', 'pin').attr('tabindex', 0).attr('role', 'button').attr('aria-label', (d) => d.k.replace('|', ', ') + ', ' + d.cs.length + ' creators');
-  pg.filter((d) => d.fresh).append('circle').attr('class', 'ring').attr('r', (d) => d.r); pg.append('circle').attr('class', 'b').attr('r', (d) => d.r); pg.filter((d) => d.cs.length > 1).append('text').text((d) => d.cs.length);
-  let k = 1; const place = () => { pg.attr('transform', (d) => `translate(${d.x},${d.y}) scale(${1 / k})`); sg.attr('transform', (d) => `translate(${d.x},${d.y})`); sm.attr('transform', `scale(${1 / k})`); sg.select('.halo').style('display', k >= 4 ? null : 'none'); };
-  const zoom = d3.zoom().scaleExtent([1, 30]).translateExtent([[-150, -150], [W + 150, H + 150]]).on('zoom', (ev) => { k = ev.transform.k; g.attr('transform', ev.transform); place(); S.mapT = ev.transform; hidePop(true); });
-  svg.call(zoom).on('dblclick.zoom', null); MAP = { svg, zoom, proj, pins, stores, W, H };
-  if (S.mapT) svg.call(zoom.transform, S.mapT); else place();
+  const sm = sg.append('g'); sm.append('rect').attr('x', -4).attr('y', -4).attr('width', 8).attr('height', 8).attr('transform', 'rotate(45)');
+  const pLayer = g.append('g').style('display', S.showCreators ? null : 'none');
+  let k = 1;
+  // group pins that would overlap on screen into one numbered bubble
+  function clusters() {
+    const R = 26 / k; const out = []; const used = new Set();
+    pins.slice().sort((a, b) => b.cs.length - a.cs.length).forEach((p) => {
+      if (used.has(p.k)) return; const members = pins.filter((q) => !used.has(q.k) && Math.hypot(q.x - p.x, q.y - p.y) <= R); members.forEach((q) => used.add(q.k));
+      const n = members.reduce((a, q) => a + q.cs.length, 0); const x = members.reduce((a, q) => a + q.x * q.cs.length, 0) / n, y = members.reduce((a, q) => a + q.y * q.cs.length, 0) / n;
+      out.push({ k: members.length > 1 ? 'cl:' + members.map((q) => q.k).sort().join('+') : p.k, members, cs: members.flatMap((q) => q.cs), x, y, n, multi: members.length > 1, fresh: members.some((q) => q.fresh) });
+    });
+    return out;
+  }
+  function drawPins() {
+    const data = clusters(); MAP.clusters = data;
+    const sel = pLayer.selectAll('g.pin').data(data, (d) => d.k).join((en) => { const e = en.append('g').attr('class', 'pin').attr('tabindex', 0).attr('role', 'button'); e.append('circle').attr('class', 'ring'); e.append('circle').attr('class', 'b'); e.append('text'); return e; });
+    sel.attr('aria-label', (d) => (d.multi ? d.n + ' creators in ' + d.members.length + ' places' : d.k.replace('|', ', ') + ', ' + d.n + ' creator' + (d.n > 1 ? 's' : '')));
+    sel.classed('cluster', (d) => d.multi);
+    sel.select('.ring').attr('r', (d) => radius(d)).style('display', (d) => (d.fresh ? null : 'none'));
+    sel.select('.b').attr('r', (d) => radius(d));
+    sel.select('text').text((d) => (d.n > 1 ? d.n : ''));
+    sel.attr('transform', (d) => `translate(${d.x},${d.y}) scale(${1 / k})`);
+    sel.on('mouseenter', (ev, d) => { if (!touch) showPop(d, false, ev.currentTarget); }).on('mouseleave', () => schedHide())
+      .on('click', (ev, d) => { ev.stopPropagation(); if (d.multi) zoomToPins(d); else if (d.n === 1 && !touch) openProfile(d.cs[0].id); else showPop(d, true, ev.currentTarget); })
+      .on('keydown', (ev, d) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); if (d.multi) zoomToPins(d); else showPop(d, true, ev.currentTarget); } });
+  }
+  const radius = (d) => (d.n > 1 ? Math.min(24, 10 + 3.2 * Math.sqrt(d.n - 1)) : 7);
+  const placeStatic = () => { sg.attr('transform', (d) => `translate(${d.x},${d.y})`); sm.attr('transform', `scale(${1 / k})`); sg.select('.halo').style('display', k >= 5 ? null : 'none'); pLayer.selectAll('g.pin').attr('transform', (d) => `translate(${d.x},${d.y}) scale(${1 / k})`); };
+  let hintT = null;
+  const zoom = d3.zoom().extent([[0, 0], [MW, MH]]).scaleExtent([1, 40]).translateExtent([[0, 0], [MW, MH]])
+    .filter((ev) => { if (ev.type === 'wheel') { if (ev.ctrlKey || ev.metaKey) return true; const h = $('maphint'); if (h) { h.hidden = false; clearTimeout(hintT); hintT = setTimeout(() => (h.hidden = true), 1300); } return false; } return (!ev.ctrlKey || ev.type === 'wheel') && !ev.button; })
+    .on('zoom', (ev) => { k = ev.transform.k; g.attr('transform', ev.transform); placeStatic(); S.mapT = ev.transform; hidePop(true); })
+    .on('end', () => drawPins());
+  svg.call(zoom).on('dblclick.zoom', null);
   const touch = matchMedia('(hover: none)').matches;
-  pg.on('mouseenter', (ev, d) => { if (!touch) showPop(d, false); }).on('mouseleave', () => schedHide()).on('click', (ev, d) => { ev.stopPropagation(); if (d.cs.length === 1 && !touch) { openProfile(d.cs[0].id); } else showPop(d, true); }).on('keydown', (ev, d) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); showPop(d, true); } });
-  sg.on('mouseenter', (ev, d) => { if (!touch) showStorePop(d, false); }).on('mouseleave', () => schedHide()).on('click', (ev, d) => { ev.stopPropagation(); showStorePop(d, true); }).on('keydown', (ev, d) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); showStorePop(d, true); } });
+  MAP = { svg, zoom, proj, pins, stores, clusters: [] };
+  drawPins();
+  if (S.mapT) svg.call(zoom.transform, S.mapT); else placeStatic();
+  sg.on('mouseenter', (ev, d) => { if (!touch) showStorePop(d, false, ev.currentTarget); }).on('mouseleave', () => schedHide()).on('click', (ev, d) => { ev.stopPropagation(); showStorePop(d, true, ev.currentTarget); }).on('keydown', (ev, d) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); showStorePop(d, true, ev.currentTarget); } });
   svg.on('click', () => hidePop(true));
   const pop = $('pop'); pop.addEventListener('mouseenter', () => clearTimeout(hideT)); pop.addEventListener('mouseleave', () => schedHide());
 }
+function boundsTransform(pts, maxK) {
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]); const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const w = Math.max(x1 - x0, 1), h = Math.max(y1 - y0, 1); const kk = Math.max(1, Math.min(maxK || 30, 0.8 / Math.max(w / MW, h / MH)));
+  return d3.zoomIdentity.translate(MW / 2, MH / 2).scale(kk).translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
+}
+function zoomToPins(d) { if (!MAP) return; const t = boundsTransform(d.members.map((q) => [q.x, q.y]), 30); S.jump = ''; MAP.svg.transition().duration(650).call(MAP.zoom.transform, t); }
 function creatorRows(cs, max) { return cs.slice(0, max).map((c) => { const cr = CRM[c.id]; const top = [['TikTok', c.tt], ['Instagram', c.ig], ['YouTube', c.yt]].sort((a, b) => (b[1] || 0) - (a[1] || 0))[0];
   return `<button type="button" class="pcr" data-act="open" data-id="${c.id}"><img src="${c.head}" alt=""><span style="min-width:0;display:block"><span class="n">${cr.fav ? '<span style="color:var(--lime)">★</span>' : ''}${esc(c.name)} ${langTags(c)}</span><span class="m"><span class="dot" style="background:${STCOL[cr.status]}"></span>${cr.status}${top[1] ? ' · ' + top[0] + ' ' + fmt(top[1]) : ''}</span><span class="m">${PIN.replace('<svg', '<svg style="width:11px;height:11px"')}${kmTxt(nd(c))} to JD ${esc(c.near[0] ? c.near[0].s.name : '')}</span></span></button>`; }).join(''); }
-function placePop(x, y, key) { const pop = $('pop'); pop.hidden = false; const box = $('mapbox').getBoundingClientRect(), sr = $('mapsvg').getBoundingClientRect(); const t = S.mapT || d3.zoomIdentity; const sc = sr.width / MAP.W;
-  const px = t.applyX(x) * sc + (sr.left - box.left), py = t.applyY(y) * sc + (sr.top - box.top); const pw = pop.offsetWidth, ph = pop.offsetHeight; let left = px + 18, top = py - ph / 2;
+function placePop(node, key) {
+  const pop = $('pop'); pop.hidden = false; const box = $('mapbox').getBoundingClientRect(); const r = node.getBoundingClientRect();
+  const px = r.left + r.width / 2 - box.left, py = r.top + r.height / 2 - box.top; const pw = pop.offsetWidth, ph = pop.offsetHeight; let left = px + 18, top = py - ph / 2;
   if (left + pw > box.width - 10) left = px - pw - 18; left = Math.max(10, left); top = Math.max(10, Math.min(top, box.height - ph - 10)); pop.style.left = left + 'px'; pop.style.top = top + 'px';
-  d3.selectAll('.pin').classed('on', (p) => p.k === key); d3.selectAll('.spin').classed('on', (p) => p.s.name === key); }
-function showPop(d, pinned) { clearTimeout(hideT); const pop = $('pop'); if (!pop || !MAP) return; if (pinned) S.popPinned = d.k; const c0 = d.cs[0];
-  pop.innerHTML = `<div class="ph"><span class="t">${esc(c0.city)}</span><span class="c">${esc(c0.provName)} · ${d.cs.length} creator${d.cs.length > 1 ? 's' : ''}</span></div>${creatorRows(d.cs, 4)}<div class="pf2">${d.cs.length > 4 ? '+' + (d.cs.length - 4) + ' more. Filter by this city to see everyone.' : 'Click a creator to open their profile'}</div>`; placePop(d.x, d.y, d.k); }
-function showStorePop(d, pinned) { clearTimeout(hideT); const pop = $('pop'); if (!pop || !MAP) return; if (pinned) S.popPinned = d.s.name; const near = d.near.slice().sort((a, b) => km(a.lat, a.lng, d.s.lat, d.s.lng) - km(b.lat, b.lng, d.s.lat, d.s.lng));
-  pop.innerHTML = `<div class="ph"><span class="t">JD ${esc(d.s.name)}</span><span class="c">${esc(fullAddr(d.s))}</span><span class="c">${esc(d.s.phone)}</span></div>${near.length ? `<div class="pf2" style="padding-top:0">${near.length} creator${near.length > 1 ? 's' : ''} within 25 km</div>${creatorRows(near, 3)}` : '<div class="pf2" style="color:var(--warn)">No creators within 25 km. Recruitment gap.</div>'}`; placePop(d.x, d.y, d.s.name); }
+  d3.selectAll('.pin').classed('on', (p) => p.k === key); d3.selectAll('.spin').classed('on', (p) => p.s && p.s.name === key);
+}
+function showPop(d, pinned, node) {
+  clearTimeout(hideT); const pop = $('pop'); if (!pop || !MAP || !node) return; if (pinned) S.popPinned = d.k;
+  const head = d.multi ? `<span class="t">${d.n} creators</span><span class="c">${d.members.map((q) => esc(q.k.split('|')[0])).slice(0, 4).join(', ')}${d.members.length > 4 ? ' and more' : ''}</span>` : `<span class="t">${esc(d.cs[0].city)}</span><span class="c">${esc(d.cs[0].provName)} · ${d.n} creator${d.n > 1 ? 's' : ''}</span>`;
+  pop.innerHTML = `<div class="ph">${head}</div>${creatorRows(d.cs, 4)}<div class="pf2">${d.multi ? 'Click the bubble to zoom into this area' : d.n > 4 ? '+' + (d.n - 4) + ' more. Filter by this city to see everyone.' : 'Click a creator to open their profile'}</div>`;
+  placePop(node, d.k);
+}
+function showStorePop(d, pinned, node) {
+  clearTimeout(hideT); const pop = $('pop'); if (!pop || !MAP || !node) return; if (pinned) S.popPinned = d.s.name; const near = d.near.slice().sort((a, b) => km(a.lat, a.lng, d.s.lat, d.s.lng) - km(b.lat, b.lng, d.s.lat, d.s.lng));
+  pop.innerHTML = `<div class="ph"><span class="t">JD ${esc(d.s.name)}</span><span class="c">${esc(fullAddr(d.s))}</span><span class="c">${esc(d.s.phone)}</span></div>${near.length ? `<div class="pf2" style="padding-top:0">${near.length} creator${near.length > 1 ? 's' : ''} within 25 km</div>${creatorRows(near, 3)}` : '<div class="pf2" style="color:var(--warn)">No creators within 25 km. Recruitment gap.</div>'}`;
+  placePop(node, d.s.name);
+}
 function schedHide() { if (S.popPinned) return; clearTimeout(hideT); hideT = setTimeout(() => hidePop(false), 240); }
 function hidePop(force) { if (!force && S.popPinned) return; S.popPinned = null; const p = $('pop'); if (p) p.hidden = true; if (window.d3) { d3.selectAll('.pin').classed('on', false); d3.selectAll('.spin').classed('on', false); } }
-function zoomTo(c, z) { if (!MAP) return null; const t = c ? (() => { const [x, y] = MAP.proj(c); return d3.zoomIdentity.translate(MAP.W / 2, MAP.H / 2).scale(z).translate(-x, -y); })() : d3.zoomIdentity; return MAP.svg.transition().duration(650).call(MAP.zoom.transform, t); }
+function zoomTo(c, z) {
+  if (!MAP) return null; let t = d3.zoomIdentity;
+  if (c === 'fit') { const pts = MAP.pins.map((p) => [p.x, p.y]); if (pts.length) t = boundsTransform(pts, 8); }
+  else if (c) { const [x, y] = MAP.proj(c); t = d3.zoomIdentity.translate(MW / 2, MH / 2).scale(z).translate(-x, -y); }
+  return MAP.svg.transition().duration(650).call(MAP.zoom.transform, t);
+}
 
 /* ---------------------------------------------------------------- overlays (keeps typing intact during live updates) */
 let lastOpen = null;
@@ -742,9 +796,10 @@ async function copyText(txt, el) { try { await navigator.clipboard.writeText(txt
 async function updateBoard(bid, row) { const { data, error } = await sb.from('boards').update(row).eq('id', bid).select().single(); if (error) { toast("Couldn't update the board."); console.error(error); return null; } const i = BOARDS.findIndex((b) => b.id === bid); if (data.archived) BOARDS.splice(i, 1); else BOARDS[i] = boardFrom(data); return data; }
 
 /* ---------------------------------------------------------------- image fade-in */
-document.addEventListener('load', (e) => { const t = e.target; if (t.tagName === 'IMG') { t.classList.add('ld'); const cm = t.closest('.cm'); if (cm) cm.classList.add('ld'); } }, true);
-document.addEventListener('error', (e) => { const t = e.target; if (t.tagName === 'IMG') { t.classList.add('ld'); const cm = t.closest('.cm'); if (cm) cm.classList.add('ld'); } }, true);
-new MutationObserver(() => { document.querySelectorAll('img:not(.ld)').forEach((im) => { if (im.complete && im.naturalWidth) { im.classList.add('ld'); const cm = im.closest('.cm'); if (cm) cm.classList.add('ld'); } }); }).observe(document.body, { childList: true, subtree: true });
+const markLoaded = (t) => { t.classList.add('ld'); const box = t.closest('.cm,.media-main,.lbs,.mm,.thumbs button,.strip button'); if (box) box.classList.add('ld'); };
+document.addEventListener('load', (e) => { if (e.target.tagName === 'IMG') markLoaded(e.target); }, true);
+document.addEventListener('error', (e) => { if (e.target.tagName === 'IMG') markLoaded(e.target); }, true);
+new MutationObserver(() => { document.querySelectorAll('img:not(.ld)').forEach((im) => { if (im.complete && im.naturalWidth) markLoaded(im); }); }).observe(document.body, { childList: true, subtree: true });
 
 /* ---------------------------------------------------------------- events */
 document.addEventListener('click', async (e) => {
@@ -807,12 +862,12 @@ document.addEventListener('click', async (e) => {
     case 'sharetog': { const b = BOARDS.find((x) => x.id === S.share); if (await updateBoard(b.id, { share_on: !b.share.on })) { toast(!b.share.on ? 'Link created' : 'Sharing turned off'); renderOverlays(); } break; }
     case 'sharecopy': copyText($('sharelink').value, $('sharelink')); break;
     case 'sharenew': { const tok = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()).replace(/-/g, ''); if (await updateBoard(S.share, { share_token: tok })) { toast('New link created. The old link no longer works'); renderOverlays(); } break; }
-    case 'jump': { S.jump = a.dataset.k; const j = JUMPS.find((x) => x.k === S.jump); zoomTo(j.c, j.z); document.querySelectorAll('.jump').forEach((b) => b.setAttribute('aria-pressed', b.dataset.k === S.jump)); break; }
+    case 'jump': { S.jump = a.dataset.k; const j = JUMPS.find((x) => x.k === S.jump); zoomTo(j.k === 'fit' ? 'fit' : j.c, j.z); document.querySelectorAll('.jump').forEach((b) => b.setAttribute('aria-pressed', b.dataset.k === S.jump)); break; }
     case 'zin': if (MAP) MAP.svg.transition().duration(300).call(MAP.zoom.scaleBy, 1.7); break;
     case 'zout': if (MAP) MAP.svg.transition().duration(300).call(MAP.zoom.scaleBy, 1 / 1.7); break;
     case 'lgs': S.showStores = !S.showStores; renderMain(); break;
     case 'lgc': S.showCreators = !S.showCreators; renderMain(); break;
-    case 'city': { const d = MAP && MAP.pins.find((p) => p.k === a.dataset.c); if (d) { const tr = zoomTo([d.cs[0].lng, d.cs[0].lat], 10); if (tr) tr.on('end', () => showPop(d, true)); } break; }
+    case 'city': { const d = MAP && MAP.pins.find((p) => p.k === a.dataset.c); if (d) { S.jump = ''; const tr = zoomTo([d.cs[0].lng, d.cs[0].lat], 10); if (tr) tr.on('end', () => setTimeout(() => { const cl = MAP.clusters.find((x) => x.members.some((q) => q.k === d.k)); const node = cl && d3.selectAll('.pin').filter((p) => p.k === cl.k).node(); if (cl && node) showPop(cl, true, node); }, 80)); } break; }
     case 'toastundo': if (undoFn) { const f = undoFn; undoFn = null; $('toast').hidden = true; f(); } break;
     case 'signout': await sb.auth.signOut(); location.reload(); break;
     case 'setpw': S.pw = true; renderOverlays(); setTimeout(() => $('pw1') && $('pw1').focus(), 50); break;
