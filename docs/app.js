@@ -664,9 +664,10 @@ function zoomTo(c, z) { if (!MAP) return null; const t = c ? (() => { const [x, 
 /* ---------------------------------------------------------------- overlays (keeps typing intact during live updates) */
 let lastOpen = null;
 function renderOverlays() {
-  const keep = {}; const sameProfile = lastOpen === S.open; lastOpen = S.open; document.querySelectorAll('#overlays textarea[id], #overlays input[id]').forEach((el) => { if (el.type !== 'date') keep[el.id] = { v: el.value, focus: document.activeElement === el, s: el.selectionStart, e: el.selectionEnd }; });
+  const keep = {}; const sameProfile = lastOpen === S.open; lastOpen = S.open; document.querySelectorAll('#overlays textarea[id], #overlays input[id]').forEach((el) => { if (el.type !== 'date' && el.type !== 'password') keep[el.id] = { v: el.value, focus: document.activeElement === el, s: el.selectionStart, e: el.selectionEnd }; });
   let h = '';
   if (S.open) { const c = C.find((x) => x.id === S.open); if (c) h += drawerHTML(c); else S.open = null; }
+  if (S.pw) h += `<div class="scrim" data-act="pwclose"></div><div class="login-card" role="dialog" aria-modal="true" aria-label="Set password" style="position:fixed;z-index:80;left:50%;top:50%;transform:translate(-50%,-50%);width:min(420px,calc(100% - 32px))"><h1 class="dsp" style="font-size:34px">Set password</h1><p>Choose a password so you can sign in without an email link. At least 10 characters.</p><input id="pw1" type="password" autocomplete="new-password" placeholder="New password" aria-label="New password"><input id="pw2" type="password" autocomplete="new-password" placeholder="Type it again" aria-label="Confirm new password"><div style="display:flex;gap:8px"><button type="button" class="btn pri" data-act="pwsave">Save password</button><button type="button" class="btn" data-act="pwclose">Cancel</button></div><div id="pwmsg" aria-live="polite"></div></div>`;
   if (S.cmpOpen) h += cmpHTML(); if (S.share) h += shareHTML(); if (S.cast) h += castHTML(); if (S.lb) h += lbHTML();
   const db = document.querySelector('.drawer .db'); const top = db ? db.scrollTop : 0;
   $('overlays').innerHTML = h;
@@ -780,6 +781,14 @@ document.addEventListener('click', async (e) => {
     case 'city': { const d = MAP && MAP.pins.find((p) => p.k === a.dataset.c); if (d) { const tr = zoomTo([d.cs[0].lng, d.cs[0].lat], 10); if (tr) tr.on('end', () => showPop(d, true)); } break; }
     case 'toastundo': if (undoFn) { const f = undoFn; undoFn = null; $('toast').hidden = true; f(); } break;
     case 'signout': await sb.auth.signOut(); location.reload(); break;
+    case 'setpw': S.pw = true; renderOverlays(); setTimeout(() => $('pw1') && $('pw1').focus(), 50); break;
+    case 'pwclose': S.pw = false; renderOverlays(); break;
+    case 'pwsave': { const a1 = $('pw1').value, a2 = $('pw2').value; const msg = $('pwmsg');
+      if (a1.length < 10) { msg.className = 'err'; msg.textContent = 'Use at least 10 characters.'; return; }
+      if (a1 !== a2) { msg.className = 'err'; msg.textContent = 'The two passwords do not match.'; return; }
+      a.disabled = true; const { error } = await sb.auth.updateUser({ password: a1 }); a.disabled = false;
+      if (error) { msg.className = 'err'; msg.textContent = "Couldn't set the password: " + error.message; return; }
+      S.pw = false; renderOverlays(); toast('Password set. Next time sign in with your email and password.'); break; }
   }
 });
 function step(d) { const L = results(); if (!L.length) return; let i = L.findIndex((c) => c.id === S.open); i = i < 0 ? 0 : (i + d + L.length) % L.length; openProfile(L[i].id); const db = document.querySelector('.drawer .db'); if (db) db.scrollTop = 0; }
@@ -866,7 +875,7 @@ async function start(session) {
   if (started) return; const email = (session.user.email || '').toLowerCase();
   if (!allowedEmail(email)) { await sb.auth.signOut(); showLogin('Only JD staff can use this CRM. Sign in with your JD email.', true); return; }
   started = true; ME = email;
-  $('loginView').hidden = true; $('appView').hidden = false; const me = $('me'); me.hidden = false; me.innerHTML = `${esc(email)} · <button type="button" class="linkbtn" data-act="signout" style="padding:0;color:#000;text-decoration:underline">Sign out</button>`;
+  $('loginView').hidden = true; $('appView').hidden = false; const me = $('me'); me.hidden = false; me.innerHTML = `${esc(email)} · <button type="button" class="linkbtn" data-act="setpw" style="padding:0;color:#000;text-decoration:underline">Set password</button> · <button type="button" class="linkbtn" data-act="signout" style="padding:0;color:#000;text-decoration:underline">Sign out</button>`;
   try { await loadAll(); } catch (e) { console.error(e); $('main').innerHTML = `<div class="empty"><div class="dsp">Couldn't load the CRM</div><p>${esc(e.message || e)}</p><button type="button" class="btn pri" onclick="location.reload()">Try again</button></div>`; return; }
   render(); subscribe();
   setInterval(checkSync, 5 * 60 * 1000);
