@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>JD Creator Collective board</title>
+<link rel="icon" href="lockup.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;1,700;1,800;1,900&family=Montserrat:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="app.css">
+<style>
+.sh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px;padding-block:22px 60px}
+.sh-card{background:var(--s1);border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;text-align:left;padding:0;color:var(--fg)}
+.sh-card:hover{border-color:var(--line2)}
+.sh-card img{width:100%;aspect-ratio:4/5;max-width:100%;object-fit:cover;display:block}
+.sh-b{padding:12px;display:grid;gap:6px}
+.sh-n{font-size:26px}
+.sh-m{font-size:12px;color:var(--fg2)}
+.sh-detail{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
+@media (max-width:800px){.sh-detail{grid-template-columns:minmax(0,1fr)}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="hero-in gut"><div><img class="lockup" src="lockup.png" alt="JD Creator Collective"><div class="dsp" id="bname" style="font-size:44px;margin-top:12px">Loading board</div><div id="bdesc" style="font-weight:600;margin-top:6px"></div></div><div class="hero-meta"><div class="t">Shared creator board</div><div class="s">Confidential. Please do not forward.</div></div></div></header>
+<main class="gut"><div id="grid" class="sh-grid"></div></main>
+<div id="overlays"></div>
+<script src="config.js"></script>
+<script src="stores.js"></script>
+<script>
+(function(){
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const fmt=n=>n==null?'–':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
+const km=(a,b,c,d)=>{const r=Math.PI/180,x=Math.sin((c-a)*r/2),y=Math.sin((d-b)*r/2);return 2*6371*Math.asin(Math.sqrt(x*x+Math.cos(a*r)*Math.cos(c*r)*y*y))};
+const STORES=(window.JD_STORES||[]).map(s=>({name:s[0],city:s[3],prov:s[4],lat:s[6],lng:s[7]}));
+const near=c=>c.lat==null?null:STORES.map(s=>({s,d:km(c.lat,c.lng,s.lat,s.lng)})).sort((a,b)=>a.d-b.d)[0];
+let D=null;
+const img=(p)=>p&&D.signed[p]?D.signed[p]:null;
+function card(c,i){const h=img(c.headshot_path);const n=near(c);const top=Math.max(c.tiktok_followers||0,c.instagram_followers||0,c.youtube_subscribers||0);
+  return `<button type="button" class="sh-card" data-i="${i}">${h?`<img src="${h}" alt="">`:`<div class="head-ph" style="aspect-ratio:4/5"></div>`}<div class="sh-b"><div class="dsp sh-n">${esc(c.name)}</div><div class="sh-m">${esc(c.city||'')}${c.province?', '+esc(c.province):''}</div><div class="sh-m">${top?fmt(top)+' top reach':''}${(c.content_lanes||[]).length?' · '+esc(c.content_lanes.join(', ')):''}</div>${n?`<div class="near${n.d<=25?' ok':''}"><span>Near JD ${esc(n.s.name)}</span></div>`:''}</div></button>`}
+function detail(c){const posts=(c.post_urls||[]).map(u=>(c.previews||[]).find(p=>p.url===u)||{url:u});const setups=(c.setup_paths||[]).map(img).filter(Boolean);
+  return `<div class="full" role="dialog" aria-modal="true"><div class="dh"><span class="dsp" style="font-size:30px">${esc(c.name)}</span><button type="button" class="ib" data-close aria-label="Close">×</button></div><div class="fullb"><div class="sh-detail">
+  <div>${img(c.headshot_path)?`<img src="${img(c.headshot_path)}" alt="" style="width:100%;border-radius:14px">`:''}${setups.length?`<div class="thumbs">${setups.map(s=>`<a href="${s}" target="_blank" rel="noopener"><img src="${s}" alt="" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px"></a>`).join('')}</div>`:''}</div>
+  <div><div class="pstats">${[['TikTok',c.tiktok_followers],['Instagram',c.instagram_followers],['YouTube',c.youtube_subscribers]].map(([k,v])=>`<div class="pstat${v==null?' na':''}"><div class="k">${k}</div><div class="v num">${fmt(v)}</div></div>`).join('')}</div>
+  <div class="chips" style="margin-top:12px">${[...(c.content_lanes||[]),...(c.can_do||[]),...(c.languages||[])].map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div>
+  <div class="sec-t">Posts</div><div style="display:grid;gap:12px">${posts.map(p=>p.embed_url?`<div class="embedwrap${/youtube\.com\/embed/.test(p.embed_url)&&!/shorts/.test(p.url)?' wide':''}" style="height:560px;max-height:70vh"><iframe src="${esc(p.embed_url)}" allow="encrypted-media; fullscreen; picture-in-picture" allowfullscreen loading="lazy" title="${esc(p.title||'Post')}"></iframe></div>`:`<a class="lp" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">${img(p.thumb_path)?`<img src="${img(p.thumb_path)}" alt="">`:'<span></span>'}<span><span class="pt">${esc(p.title||'View post')}</span><span class="pu"><span class="plat">${esc(p.platform||'Link')}</span><span>${esc(p.url)}</span></span></span></a>`).join('')||'<div class="muted">No posts shared.</div>'}</div></div>
+  </div></div></div>`}
+document.addEventListener('click',e=>{const b=e.target.closest('.sh-card');if(b){document.getElementById('overlays').innerHTML=detail(D.creators[+b.dataset.i]);document.body.style.overflow='hidden';return}if(e.target.closest('[data-close]')){document.getElementById('overlays').innerHTML='';document.body.style.overflow=''}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){document.getElementById('overlays').innerHTML='';document.body.style.overflow=''}});
+const t=new URLSearchParams(location.search).get('t')||'';
+fetch(window.CRM_CONFIG.supabaseUrl+'/functions/v1/shared-board?t='+encodeURIComponent(t),{headers:{apikey:window.CRM_CONFIG.supabaseAnonKey}}).then(r=>r.json()).then(d=>{
+  if(d.error){document.getElementById('bname').textContent='Board unavailable';document.getElementById('bdesc').textContent=d.error;return}
+  D=d;document.title=d.name+' · JD Creator Collective';document.getElementById('bname').textContent=d.name;document.getElementById('bdesc').textContent=(d.description?d.description+' · ':'')+d.creators.length+' creators';
+  document.getElementById('grid').innerHTML=d.creators.map(card).join('')||'<div class="empty"><div class="dsp">No creators yet</div></div>';
+}).catch(()=>{document.getElementById('bname').textContent='Board unavailable';document.getElementById('bdesc').textContent='Check your connection and reload.'});
+})();
+</script>
+</body>
+</html>

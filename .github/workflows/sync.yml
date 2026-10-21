@@ -1,0 +1,32 @@
+name: Jotform sync
+
+on:
+  schedule:
+    - cron: "7 * * * *"   # hourly, at 7 minutes past. Change to "7 11 * * *" for daily (11:07 UTC = 4:07am Vancouver).
+  workflow_dispatch: {}    # "Run workflow" button for an on-demand refresh
+
+concurrency:
+  group: jotform-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: sync
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - run: node sync.mjs
+        env:
+          JOTFORM_API_KEY: ${{ secrets.JOTFORM_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          META_OEMBED_TOKEN: ${{ secrets.META_OEMBED_TOKEN }}
+          JOTFORM_FORM_ID: ${{ vars.JOTFORM_FORM_ID || '262455225676261' }}
+          JOTFORM_UTC_OFFSET: ${{ vars.JOTFORM_UTC_OFFSET || '-04:00' }}
