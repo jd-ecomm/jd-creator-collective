@@ -652,3 +652,8 @@ button.pbar:hover{background:var(--s1)}
 .bcard .bbody{margin-top:0;padding-top:12px}
 .bcard .bbody .d{font-size:12.5px;line-height:1.45;color:var(--fg2)}
 .bcard .bbody .rules{display:none}
+
+/* ---- gender and age on profiles */
+.pwho{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 4px}
+.whochip{background:var(--lime);color:#000;font-family:var(--display);font-style:italic;font-weight:800;text-transform:uppercase;font-size:16px;letter-spacing:.02em;padding:3px 11px;border-radius:6px;line-height:1.1}
+.whochip.na{background:var(--s2);color:var(--fg3);font-family:inherit;font-style:normal;font-weight:600;text-transform:none;font-size:12px;padding:5px 10px}

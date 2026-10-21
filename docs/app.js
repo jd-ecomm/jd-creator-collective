@@ -175,6 +175,8 @@ function rights(c) { const cr = CRM[c.id]; if (cr.status !== 'Onboarded') return
 const uniq = (arr) => [...new Set(arr.filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
 const GROUPS = [
   { k: 'status', l: 'Status', open: true, opts: () => STATUSES, get: (c) => [CRM[c.id].status] },
+  { k: 'gender', l: 'Gender', open: true, opts: () => uniq(C.map((c) => c.gender)).sort((a, b) => (a === 'Not given') - (b === 'Not given') || a.localeCompare(b)), get: (c) => [c.gender] },
+  { k: 'age', l: 'Age', open: true, opts: () => ['18 to 20', '21 to 24', '25 to 29', '30 to 34', '35+', 'Not given'], get: (c) => [c.ageBand] },
   { k: 'needs', l: 'Needs attention', open: false, opts: () => ['Age not confirmed', 'Waiting 14+ days', 'No owner', 'Stuck 7+ days', 'Missing setup photos', 'No post links', 'Split opinion'], get: needs },
   { k: 'boards', l: 'Campaign boards', open: false, opts: () => BOARDS.map((b) => b.name), get: (c) => BOARDS.filter((b) => MEMBERS.get(b.id + '|' + c.id)).map((b) => b.name) },
   { k: 'owner', l: 'Owner', open: false, opts: () => uniq(C.map((c) => dispName(CRM[c.id].owner))), get: (c) => [dispName(CRM[c.id].owner)] },
@@ -186,8 +188,6 @@ const GROUPS = [
   { k: 'platform', l: 'Platform', open: false, opts: () => ['TikTok', 'Instagram', 'YouTube'], get: (c) => [c.tt || c.urls.TikTok ? 'TikTok' : 0, c.ig || c.urls.Instagram ? 'Instagram' : 0, c.yt || c.urls.YouTube ? 'YouTube' : 0].filter(Boolean) },
   { k: 'band', l: 'Largest audience', open: false, opts: () => ['Under 1k', '1k to 5k', '5k to 10k', '10k to 50k', '50k+', 'Not given'], get: (c) => [band(c)] },
   { k: 'score', l: 'Team score', open: false, opts: () => ['4 and above', '3 to 3.9', 'Below 3', 'Not scored'], get: (c) => { const s = teamScore(c.id); return [s == null ? 'Not scored' : s >= 4 ? '4 and above' : s >= 3 ? '3 to 3.9' : 'Below 3']; } },
-  { k: 'gender', l: 'Gender', open: true, opts: () => uniq(C.map((c) => c.gender)).sort((a, b) => (a === 'Not given') - (b === 'Not given') || a.localeCompare(b)), get: (c) => [c.gender] },
-  { k: 'age', l: 'Age', open: true, opts: () => ['18 to 20', '21 to 24', '25 to 29', '30 to 34', '35+', 'Not given'], get: (c) => [c.ageBand] },
   { k: 'lanes', l: 'Content lanes', open: false, opts: () => uniq(C.flatMap((c) => c.lanes)), get: (c) => c.lanes },
   { k: 'can', l: 'What they can do', open: false, opts: () => uniq(C.flatMap((c) => c.can)), get: (c) => c.can },
   { k: 'style', l: 'On-camera style', open: false, opts: () => uniq(C.map((c) => c.style)), get: (c) => [c.style] },
@@ -449,6 +449,7 @@ function drawerHTML(c) {
     </div>
     <div style="min-width:0">
       <div class="pname dsp">${esc(c.name)}</div>
+      <div class="pwho">${c.gender !== 'Not given' ? `<span class="whochip">${esc(c.gender)}</span>` : '<span class="whochip na">Gender not given</span>'}${c.age != null ? `<span class="whochip">Age ${c.age}</span>` : '<span class="whochip na">Age not given</span>'}</div>
       <div class="ploc">${esc(c.city)}${c.provName ? ', ' + esc(c.provName) : ''} <span class="muted">· ${esc(c.metro)}</span> ${c.langs.map((l) => `<span class="chip">${esc(l)}</span>`).join('')}</div>
       <div class="badges">
         ${bilingual(c) ? '<span class="bdg lime">French-ready</span>' : ''}
@@ -536,6 +537,7 @@ function castHTML() {
   <div class="cast-b"><div class="cast-card" style="min-width:0"><div class="cast-media"><div class="mm">${big}</div><div class="side">${m.slice(0, 5).map((x, j) => `<button type="button" class="${j === mi ? 'on' : ''}" data-act="castmi" data-i="${j}" aria-label="${esc(x.label)}">${x.kind === 'img' ? `<img src="${x.thumb || x.src}" alt="">` : x.post.thumb ? `<img src="${x.post.thumb}" alt="">` : `<span style="background:${x.post.bg}"></span>`}</button>`).join('')}</div></div><div class="muted" style="font-size:11px;margin-top:6px">${esc(it.label)} · press 1 to 5 to flick through media</div></div>
   <div class="cast-card" style="min-width:0">
     <div class="pname dsp">${esc(c.name)}</div>
+    <div class="pwho">${c.gender !== 'Not given' ? `<span class="whochip">${esc(c.gender)}</span>` : '<span class="whochip na">Gender not given</span>'}${c.age != null ? `<span class="whochip">Age ${c.age}</span>` : '<span class="whochip na">Age not given</span>'}</div>
     <div class="ploc">${esc(c.city)}${c.provName ? ', ' + esc(c.provName) : ''} ${c.langs.map((l) => `<span class="chip">${esc(l)}</span>`).join('')} <span class="muted">· applied ${daysAgo(c)}d ago</span></div>
     <div class="badges">${bilingual(c) ? '<span class="bdg lime">French-ready</span>' : ''}${c.pads && maxAud(c) >= 10000 ? '<span class="bdg lime">Ad-ready</span>' : ''}${needs(c).filter((x) => !['No owner', 'Stuck 7+ days', 'Waiting 14+ days'].includes(x)).map((x) => `<span class="bdg warn">${esc(x)}</span>`).join('')}</div>
     <div class="pstats" style="margin-top:14px">${[['TikTok', c.tt], ['Instagram', c.ig], ['YouTube', c.yt]].map(([k, v]) => `<div class="pstat${v == null ? ' na' : ''}"><div class="k">${k}</div><div class="v num">${fmt(v)}</div></div>`).join('')}</div>
