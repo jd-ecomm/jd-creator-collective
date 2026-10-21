@@ -873,6 +873,16 @@ async function start(session) {
   setInterval(async () => { SIGNED = {}; await loadApplications(); render(); }, 5 * 3600 * 1000); // refresh photo links before they expire
   setInterval(() => { TODAY = new Date(); renderSync(); }, 60 * 1000);
 }
-sb.auth.onAuthStateChange((ev, session) => { if (session && !started) start(session); });
-sb.auth.getSession().then(({ data }) => { if (data.session) start(data.session); else if (!/access_token|code=/.test(location.href)) showLogin(); });
+// Sign-in errors from an email link (expired or already used) arrive in the address bar
+const urlErr = (() => { const p = new URLSearchParams(location.hash.slice(1) + '&' + location.search.slice(1)); return p.get('error_description'); })();
+const cleanUrl = () => { if (location.hash || /[?&](code|error)/.test(location.search)) history.replaceState(null, '', location.pathname); };
+// Never run app work inside the auth callback itself: the library holds a lock there, so defer it
+sb.auth.onAuthStateChange((ev, session) => { if (session && !started) setTimeout(() => { cleanUrl(); start(session); }, 0); });
+sb.auth.getSession().then(({ data }) => {
+  if (data.session) { cleanUrl(); start(data.session); }
+  else if (urlErr) { cleanUrl(); showLogin(urlErr.replace(/\+/g, ' ') + '. Sign in again below.', true); }
+  else if (!/access_token|[?&]code=/.test(location.href)) showLogin();
+});
+// Safety net: if nothing has loaded after a few seconds, show the sign-in screen instead of a blank page
+setTimeout(() => { if (!started && $('loginView').hidden) { cleanUrl(); showLogin('That sign-in link did not work. Enter your email to try again.', true); } }, 6000);
 })();

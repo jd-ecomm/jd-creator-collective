@@ -1,3 +1,5 @@
+[hidden]{display:none!important}
+body{margin:0}
 /* Layout: grainy Creator Collective gradient band, dark working canvas, filter rail + media-first views, slide-in profile, full-screen casting */
 :root{
   --lime:#A8F04C; --mint:#62C17E; --teal:#4E9E9A; --sky:#3E6AD6; --royal:#2433B4; --ink:#000;

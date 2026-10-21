@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;1,700;1,800;1,900&family=Montserrat:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="app.css?v=4">
 <style>
 .sh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px;padding-block:22px 60px}
 .sh-card{background:var(--s1);border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;text-align:left;padding:0;color:var(--fg)}
@@ -27,8 +27,8 @@
 <header class="hero"><div class="hero-in gut"><div><img class="lockup" src="lockup.png" alt="JD Creator Collective"><div class="dsp" id="bname" style="font-size:44px;margin-top:12px">Loading board</div><div id="bdesc" style="font-weight:600;margin-top:6px"></div></div><div class="hero-meta"><div class="t">Shared creator board</div><div class="s">Confidential. Please do not forward.</div></div></div></header>
 <main class="gut"><div id="grid" class="sh-grid"></div></main>
 <div id="overlays"></div>
-<script src="config.js"></script>
-<script src="stores.js"></script>
+<script src="config.js?v=4"></script>
+<script src="stores.js?v=4"></script>
 <script>
 (function(){
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
