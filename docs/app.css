@@ -657,3 +657,69 @@ button.pbar:hover{background:var(--s1)}
 .pwho{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 4px}
 .whochip{background:var(--lime);color:#000;font-family:var(--display);font-style:italic;font-weight:800;text-transform:uppercase;font-size:16px;letter-spacing:.02em;padding:3px 11px;border-radius:6px;line-height:1.1}
 .whochip.na{background:var(--s2);color:var(--fg3);font-family:inherit;font-style:normal;font-weight:600;text-transform:none;font-size:12px;padding:5px 10px}
+
+/* ---- map v3 (MapLibre) */
+.mapbox{background:#0a100e}
+.mapslot{position:relative;height:clamp(440px,68vh,760px)}
+.mlmap{position:absolute;inset:0}
+.mlmap .maplibregl-canvas{outline:none}
+.mapbox.active{outline:2px solid var(--lime);outline-offset:-2px}
+.jumps{z-index:3;right:120px}
+.maplegend{z-index:3}
+.maphint{z-index:4}
+.maplibregl-ctrl-group{background:rgba(16,24,22,.92)!important;border:1px solid var(--line2);box-shadow:none!important}
+.maplibregl-ctrl-group button{width:38px!important;height:38px!important}
+.maplibregl-ctrl-group button+button{border-top:1px solid var(--line2)!important}
+.maplibregl-ctrl button .maplibregl-ctrl-icon{filter:invert(1) brightness(1.4)}
+.maplibregl-ctrl-attrib{background:rgba(10,16,14,.75)!important;color:#7d8d87;font-size:10px}
+.maplibregl-ctrl-attrib a{color:#9fb0aa}
+.maplibregl-ctrl-attrib-button{filter:invert(1)}
+/* creator pins: photo grows with zoom */
+.mk{cursor:pointer;width:var(--pin,40px);height:var(--pin,40px)}
+.mk-in{display:block;width:100%;height:100%;border-radius:50%;overflow:hidden;border:3px solid var(--ring,#A8F04C);background:#000;box-shadow:0 4px 14px rgba(0,0,0,.6);transition:transform .15s ease,border-color .15s}
+.mk-in img{width:100%;height:100%;object-fit:cover;display:block;opacity:1!important}
+.mk:hover,.mk.hl,.mk:focus-visible{z-index:10}
+.mk:hover .mk-in,.mk.hl .mk-in,.mk:focus-visible .mk-in{transform:scale(1.3);border-color:#fff}
+.mkstar{position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:50%;background:var(--lime);color:#000;font-size:11px;display:grid;place-items:center;font-weight:800;box-shadow:0 2px 6px rgba(0,0,0,.5)}
+.mlmap.hide-s .sk{display:none}
+/* clusters: face pile + count */
+.mkc{cursor:pointer}
+.mkc-in{position:relative;display:grid;place-items:center;width:var(--cs,56px);height:var(--cs,56px);border-radius:50%;background:radial-gradient(circle,rgba(168,240,76,.28),rgba(168,240,76,.1));border:2px solid var(--lime);box-shadow:0 0 0 6px rgba(168,240,76,.08),0 6px 18px rgba(0,0,0,.5);transition:transform .15s ease}
+.mkc:hover .mkc-in,.mkc:focus-visible .mkc-in{transform:scale(1.08)}
+.mkc .faces{display:flex;padding-left:9px}
+.mkc .faces img{width:calc(var(--cs,56px)*.4);height:calc(var(--cs,56px)*.4);border-radius:50%;object-fit:cover;border:2px solid #0a100e;margin-left:-9px;opacity:1!important}
+.mkc b{position:absolute;right:-8px;bottom:-6px;background:var(--lime);color:#000;font-family:var(--display);font-style:italic;font-weight:800;font-size:16px;line-height:1;border-radius:999px;padding:3px 8px;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+/* stores */
+.sk{cursor:pointer;width:16px;height:16px;display:grid;place-items:center}
+.sk-in{width:11px;height:11px;background:#fff;border:2px solid #000;transform:rotate(45deg);box-shadow:0 0 0 3px rgba(62,106,214,.55)}
+.sk:hover .sk-in{background:var(--sky)}
+.sk .sl{position:absolute;left:16px;top:0;white-space:nowrap;font-size:11px;font-weight:700;color:#d6defc;text-shadow:0 1px 3px #000,0 0 6px #000;display:none;pointer-events:none}
+.mlmap.near .sk .sl{display:block}
+/* province tooltip */
+.mtip{position:absolute;z-index:4;pointer-events:none;background:rgba(10,16,14,.94);border:1px solid var(--line2);border-radius:10px;padding:8px 11px;display:grid;gap:2px;font-size:12px;color:var(--fg2);box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.mtip b{font-family:var(--display);font-style:italic;font-weight:800;text-transform:uppercase;font-size:18px;color:var(--fg)}
+.mtip em{font-style:normal;color:var(--lime);font-weight:700;font-size:11px}
+/* popups */
+.mpop{z-index:20}
+.mpop .maplibregl-popup-content{background:var(--s1);color:var(--fg);border:1px solid var(--line2);border-radius:14px;padding:12px;box-shadow:0 18px 48px rgba(0,0,0,.65)}
+.mpop .maplibregl-popup-tip{display:none}
+.mcard{display:grid;grid-template-columns:118px minmax(0,1fr);gap:12px;width:310px}
+.mcard-img{padding:0;border:0;background:none;cursor:pointer}
+.mcard-img img{width:118px;height:150px;object-fit:cover;border-radius:10px;display:block;opacity:1!important}
+.mcard-b{display:grid;gap:5px;align-content:start;min-width:0}
+.mcard-n{background:none;border:0;padding:0;color:var(--fg);text-align:left;cursor:pointer;font-size:24px;line-height:.95}
+.mcard .pwho{margin:0}
+.mcard .whochip{font-size:13px;padding:2px 8px}
+.mcard-m{font-size:11.5px;color:var(--fg2);display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.mcard-s{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.mcard-s span{background:var(--s2);border-radius:6px;padding:4px 5px;display:grid}
+.mcard-s span.na{opacity:.45}
+.mcard-s i{font-style:normal;font-size:9.5px;color:var(--fg3);text-transform:uppercase;letter-spacing:.04em}
+.mcard-s b{font-size:13px}
+.btn.sm{padding:6px 10px;font-size:12px;justify-self:start}
+.mlist{width:290px;display:grid;gap:4px}
+.mlist-h{display:grid;gap:2px;padding-bottom:6px;border-bottom:1px solid var(--line);margin-bottom:2px;font-size:11px;color:var(--fg3)}
+.mlist-h b{font-size:22px;color:var(--fg);line-height:1}
+.mlist-f{font-size:11px;color:var(--fg3);padding-top:4px}
+.mlist .arow img{opacity:1!important}
+@media (max-width:900px){.mapslot{height:58vh}.jumps{right:60px}}
