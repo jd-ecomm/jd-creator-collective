@@ -2,13 +2,14 @@
   "name": "creator-crm-sync",
   "private": true,
   "type": "module",
-  "description": "Hourly Jotform to Supabase sync for the JD Creator Collective CRM",
+  "description": "Jotform to Supabase sync for the JD Creator Collective CRM",
   "scripts": {
     "sync": "node sync.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.45.4",
-    "sharp": "0.33.5"
+    "sharp": "0.33.5",
+    "heic-convert": "2.1.0"
   },
   "engines": {
     "node": ">=20"

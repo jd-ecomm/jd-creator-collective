@@ -627,3 +627,18 @@ button.pbar:hover{background:var(--s1)}
 @keyframes pillin{from{opacity:0;transform:translate(-50%,-12px)}to{opacity:1;transform:translate(-50%,0)}}
 .card.isnew{box-shadow:0 0 0 2px var(--lime)}
 .newbadge{position:absolute;top:8px;left:8px;z-index:2;background:var(--lime);color:#000;font-family:var(--display);font-style:italic;font-weight:800;font-size:13px;text-transform:uppercase;padding:2px 8px;border-radius:4px}
+
+/* ---- board cards: photos stay inside the mosaic, gradient into the text, auto-update chip */
+.mosaic{grid-template-rows:repeat(2,minmax(0,1fr));overflow:hidden;position:relative}
+.mosaic img{min-height:0}
+.mosaic::after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(7,11,10,0) 45%,rgba(7,11,10,.55) 75%,var(--s1) 100%)}
+.bbody{position:relative;margin-top:-18px;z-index:1}
+.bbody .n{text-shadow:0 2px 12px rgba(0,0,0,.6)}
+.bbody .rules{font-size:11.5px;color:var(--fg2);line-height:1.45}
+.autochip{position:absolute;top:10px;left:10px;z-index:2;background:rgba(7,11,10,.82);color:var(--lime);border:1px solid rgba(168,240,76,.45);border-radius:999px;padding:3px 10px;font-size:11px;font-weight:700;letter-spacing:.02em;backdrop-filter:blur(4px)}
+.autochip.static{position:static;display:inline-block;margin-right:6px}
+/* refresh now */
+.refreshbtn{display:inline-flex;align-items:center;gap:6px;background:none;border:1px solid var(--line2);color:var(--fg2);border-radius:999px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap}
+.refreshbtn:hover:not(:disabled){border-color:var(--lime);color:var(--lime)}
+.refreshbtn:disabled{cursor:default;color:var(--lime);border-color:rgba(168,240,76,.45)}
+.spinner.sm{width:12px;height:12px;border-width:2px}

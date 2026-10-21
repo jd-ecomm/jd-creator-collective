@@ -1,0 +1,4 @@
+-- Applied as crm_09_refresh_requests_gender_age and crm_10_auto_boards. See those migrations in Supabase for the full text.
+-- crm_09: sync_requests table ("Refresh now"), app_applications view gains gender (form "How do you identify") and age (from date of birth).
+-- crm_10: boards.rules (jsonb), board_members.source/excluded, app_matches(), refresh_board(), triggers that keep rule boards current
+--         whenever applications change or a board's rules change. People's manual removals and additions are respected.

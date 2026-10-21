@@ -88,7 +88,7 @@ function toCreator(a) {
     equipment: a.equipment || [], software: a.editing_software || [], style: a.speaking_style || 'Not given', can: a.can_do || [], lanes: a.content_lanes || [], brands: a.brands || [],
     niche: a.niche || '', apart: a.sets_apart || '', more: [a.tell_more, a.anything_else].filter(Boolean).join('\n\n'),
     workedJD: yes(a.worked_with_jd), employee: yes(a.is_employee), customer: yes(a.is_customer), pads: yes(a.partnership_ads), padsRaw: a.partnership_ads,
-    portfolio: a.portfolio_url, ageBand: a.age_band || 'Not given', ageOk: a.age_confirmed !== false && a.age_band !== 'Under 18', consent: a.consent !== false,
+    portfolio: a.portfolio_url, gender: a.gender || 'Not given', age: a.age != null ? a.age : null, ageBand: a.age != null ? (a.age < 21 ? '18 to 20' : a.age < 25 ? '21 to 24' : a.age < 30 ? '25 to 29' : a.age < 35 ? '30 to 34' : '35+') : 'Not given', ageOk: a.age_confirmed !== false && (a.age == null || a.age >= 18), consent: a.consent !== false,
     email: a.email || '', phone: a.phone || '', applied: new Date(a.submitted_at),
     urls: { TikTok: a.tiktok_url, Instagram: a.instagram_url, YouTube: a.youtube_url }
   };
@@ -143,7 +143,7 @@ async function loadAll() {
   LAST_SYNC = runs[0] || null;
   await loadApplications();
 }
-function boardFrom(b) { return { id: b.id, name: b.name, desc: b.description || '', created_by: b.created_by, share: { on: b.share_on, token: b.share_token, expires: b.share_expires_at }, get ids() { return C.filter((c) => MEMBERS.get(b.id + '|' + c.id)).map((c) => c.id); } }; }
+function boardFrom(b) { return { id: b.id, name: b.name, desc: b.description || '', rules: b.rules || null, created_by: b.created_by, share: { on: b.share_on, token: b.share_token, expires: b.share_expires_at }, get ids() { return C.filter((c) => MEMBERS.get(b.id + '|' + c.id)).map((c) => c.id); } }; }
 
 /* ---------------------------------------------------------------- derived */
 const maxAud = (c) => Math.max(c.tt || 0, c.ig || 0, c.yt || 0);
@@ -186,7 +186,8 @@ const GROUPS = [
   { k: 'platform', l: 'Platform', open: false, opts: () => ['TikTok', 'Instagram', 'YouTube'], get: (c) => [c.tt || c.urls.TikTok ? 'TikTok' : 0, c.ig || c.urls.Instagram ? 'Instagram' : 0, c.yt || c.urls.YouTube ? 'YouTube' : 0].filter(Boolean) },
   { k: 'band', l: 'Largest audience', open: false, opts: () => ['Under 1k', '1k to 5k', '5k to 10k', '10k to 50k', '50k+', 'Not given'], get: (c) => [band(c)] },
   { k: 'score', l: 'Team score', open: false, opts: () => ['4 and above', '3 to 3.9', 'Below 3', 'Not scored'], get: (c) => { const s = teamScore(c.id); return [s == null ? 'Not scored' : s >= 4 ? '4 and above' : s >= 3 ? '3 to 3.9' : 'Below 3']; } },
-  { k: 'age', l: 'Age band', open: false, opts: () => ['18 to 24', '25 to 34', '35+', 'Not given'], get: (c) => [c.ageBand] },
+  { k: 'gender', l: 'Gender', open: true, opts: () => uniq(C.map((c) => c.gender)).sort((a, b) => (a === 'Not given') - (b === 'Not given') || a.localeCompare(b)), get: (c) => [c.gender] },
+  { k: 'age', l: 'Age', open: true, opts: () => ['18 to 20', '21 to 24', '25 to 29', '30 to 34', '35+', 'Not given'], get: (c) => [c.ageBand] },
   { k: 'lanes', l: 'Content lanes', open: false, opts: () => uniq(C.flatMap((c) => c.lanes)), get: (c) => c.lanes },
   { k: 'can', l: 'What they can do', open: false, opts: () => uniq(C.flatMap((c) => c.can)), get: (c) => c.can },
   { k: 'style', l: 'On-camera style', open: false, opts: () => uniq(C.map((c) => c.style)), get: (c) => [c.style] },
@@ -212,7 +213,7 @@ const S = { view: 'wall', q: '', sort: 'new', f: {}, fn: null, fnLabel: '', cmp:
 GROUPS.forEach((g) => (S.openGroups[g.k] = g.open));
 try { const v = JSON.parse(localStorage.getItem('jdcc-crm-ui') || 'null'); if (v) { if (v.view) S.view = v.view; if (v.sort) S.sort = v.sort; } } catch (e) {}
 function saveUI() { try { localStorage.setItem('jdcc-crm-ui', JSON.stringify({ view: S.view, sort: S.sort })); } catch (e) {} }
-function matchQ(c, qq) { if (!qq) return true; const cr = CRM[c.id]; const hay = norm([c.name, c.city, c.metro, c.provName, c.prov, c.handle, c.niche, c.apart, c.more, c.style, c.near[0] && c.near[0].s.name, ...c.lanes, ...c.can, ...c.brands, ...c.equipment, ...c.langs, ...cr.tags, ...cr.notes.map((n) => n.text), cr.status, dispName(cr.owner)].join(' ')); return qq.split(/\s+/).every((t) => hay.includes(t)); }
+function matchQ(c, qq) { if (!qq) return true; const cr = CRM[c.id]; const hay = norm([c.name, c.gender, c.city, c.metro, c.provName, c.prov, c.handle, c.niche, c.apart, c.more, c.style, c.near[0] && c.near[0].s.name, ...c.lanes, ...c.can, ...c.brands, ...c.equipment, ...c.langs, ...cr.tags, ...cr.notes.map((n) => n.text), cr.status, dispName(cr.owner)].join(' ')); return qq.split(/\s+/).every((t) => hay.includes(t)); }
 function applyF(list, f, skip, fn) { return list.filter((c) => { if (fn && !fn(c)) return false; for (const g of GROUPS) { if (g.k === skip) continue; const sel = f[g.k]; if (!sel || !sel.length) continue; const v = g.get(c); if (!sel.some((x) => v.includes(x))) return false; } return true; }); }
 const nq = () => norm(S.q.trim());
 function results() {
@@ -255,7 +256,7 @@ function renderSync() {
   const t = new Date(LAST_SYNC.finished_at || LAST_SYNC.started_at); const m = Math.round((Date.now() - t) / 60000);
   el.className = 'syncchip' + (LAST_SYNC.error ? ' err' : '');
   el.textContent = LAST_SYNC.error ? 'Last sync failed' : 'Synced ' + (m < 1 ? 'just now' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago');
-  el.title = LAST_SYNC.error || 'Applications sync from Jotform every hour';
+  el.title = LAST_SYNC.error || 'Applications sync from Jotform automatically every few minutes';
 }
 function renderViews() {
   const base = C.filter((c) => matchQ(c, nq()));
@@ -308,7 +309,7 @@ function cardHTML(c, extra) {
       ${ts != null ? `<span class="scorepill num" title="Team score">${sc1(ts)}</span>` : ''}
       ${extra || ''}
       <div class="shade"></div>
-      <div class="who"><div class="n">${esc(c.name)}</div><div class="l">${esc(c.city)}${c.prov ? ', ' + c.prov : ''} ${langTags(c)}</div></div>
+      <div class="who"><div class="n">${esc(c.name)}</div><div class="l">${c.age != null ? c.age + ' · ' : ''}${c.gender !== 'Not given' ? esc(c.gender) + ' · ' : ''}${esc(c.city)}${c.prov ? ', ' + c.prov : ''} ${langTags(c)}</div></div>
     </div>
     <div class="cbody">
       <div class="strip">${thumbs}${c.posts.length ? `<button type="button" class="more" data-act="lb" data-id="${c.id}" data-i="${1 + c.setups.length}">${c.posts.length} post${c.posts.length > 1 ? 's' : ''}</button>` : '<span class="miss">No posts</span>'}</div>
@@ -441,7 +442,8 @@ function drawerHTML(c) {
         <dt>Editing</dt><dd>${c.software.map(esc).join(', ') || '<span class="muted">Not given</span>'}</dd>
         <dt>Brand pools</dt><dd><div class="chips">${c.brands.map((x) => `<span class="chip">${esc(x)}</span>`).join('') || '<span class="muted">Not given</span>'}</div></dd>
         <dt>Partnership Ads</dt><dd>${esc(c.padsRaw || 'Not given')}</dd>
-        <dt>Age band</dt><dd>${esc(c.ageBand)} <span class="muted">(date of birth is not stored)</span></dd>
+        <dt>Gender</dt><dd>${esc(c.gender)}</dd>
+        <dt>Age</dt><dd>${c.age != null ? c.age : 'Not given'}</dd>
         <dt>Applied</dt><dd>${fmtDate(c.applied, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</dd>
       </dl>
     </div>
@@ -562,15 +564,29 @@ async function castUndo() { const K = S.cast; const h = K.hist.pop(); if (!h) re
 const shareUrl = (b) => location.origin + location.pathname.replace(/[^/]*$/, '') + 'share.html?t=' + encodeURIComponent(b.share.token);
 function boardsHTML() {
   return `<div class="bhead"><div><div class="dsp" style="font-size:44px">Campaign boards</div><div class="muted">Group creators by campaign or brief. Share a read-only board with brand partners or leadership.</div></div></div>
-  <div class="boards">${BOARDS.map((b) => { const cs = b.ids.map((id) => C.find((c) => c.id === id)).filter(Boolean); return `<article class="bcard"><div class="mosaic" data-act="bopen" data-b="${b.id}">${cs.length ? cs.slice(0, 6).map((c) => `<img src="${c.head}" alt="">`).join('') : '<div class="mempty">No creators yet</div>'}</div>
-    <div class="bbody"><div class="dsp n">${esc(b.name)}</div><div class="d">${esc(b.desc)}</div><div class="muted" style="font-size:11.5px">${cs.length} creator${cs.length === 1 ? '' : 's'} · reach ${fmt(cs.reduce((a, c) => a + c.reach, 0))} · ${cs.filter((c) => nd(c) <= 25).length} near a store · made by ${esc(dispName(b.created_by))}</div>
+  <div class="boards">${BOARDS.map((b) => { const cs = b.ids.map((id) => C.find((c) => c.id === id)).filter(Boolean); return `<article class="bcard"><div class="mosaic" data-act="bopen" data-b="${b.id}">${cs.length ? cs.slice(0, 6).map((c) => `<img src="${c.head}" alt="">`).join('') : '<div class="mempty">No creators yet</div>'}${b.rules ? '<span class="autochip" title="New applicants who match are added automatically">⟳ Auto</span>' : ''}</div>
+    <div class="bbody"><div class="dsp n">${esc(b.name)}</div><div class="d">${esc(b.desc)}</div>${b.rules ? `<div class="rules">${rulesText(b.rules)}</div>` : ''}<div class="muted" style="font-size:11.5px">${cs.length} creator${cs.length === 1 ? '' : 's'} · reach ${fmt(cs.reduce((a, c) => a + c.reach, 0))} · ${cs.filter((c) => nd(c) <= 25).length} near a store · made by ${esc(dispName(b.created_by))}</div>
     <div class="bacts"><button type="button" class="btn" data-act="bopen" data-b="${b.id}">Open</button><button type="button" class="btn${b.share.on ? ' pri' : ''}" data-act="bshare" data-b="${b.id}">${b.share.on ? 'Shared' : 'Share'}</button></div></div></article>`; }).join('')}
     <form class="newb" id="newboard"><div class="dsp" style="font-size:26px">New board</div><input id="nbname" placeholder="Board name, e.g. Back to School 2027" required maxlength="120" aria-label="Board name"><textarea id="nbdesc" rows="2" placeholder="What is it for? (optional)" aria-label="Board description"></textarea><div><button class="btn pri" type="submit">Create board</button></div></form>
   </div>`;
 }
+function rulesText(r) {
+  const k = (n) => (n >= 1000 ? n / 1000 + 'k' : n); const plat = (r.platforms || []).map((p) => ({ tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube' }[p] || p));
+  const parts = [];
+  if (r.gender_any) parts.push(r.gender_any.join(' or '));
+  if (r.age_min || r.age_max) parts.push(r.age_min && r.age_max ? `age ${r.age_min} to ${r.age_max}` : r.age_min ? `age ${r.age_min}+` : `age up to ${r.age_max}`);
+  if (r.lanes_any) parts.push(r.lanes_any.join(' or ') + ' content');
+  if (r.can_all) parts.push('does ' + r.can_all.join(', ').toLowerCase());
+  if (r.langs_all) parts.push('speaks ' + r.langs_all.join(' and '));
+  if (r.provinces_any) parts.push('in ' + r.provinces_any.join(' or '));
+  if (r.provinces_none) parts.push('not in ' + r.provinces_none.join(' or '));
+  if (r.min_followers) parts.push(k(r.min_followers) + '+ followers' + (plat.length ? ' on ' + plat.join(' or ') : ''));
+  if (r.partnership_ads) parts.push('OK with partnership ads');
+  return '<span class="muted">Rule:</span> ' + esc(parts.join(' · '));
+}
 function boardDetailHTML() {
   const b = BOARDS.find((x) => x.id === S.board); if (!b) { S.board = null; return boardsHTML(); } const cs = b.ids.map((id) => C.find((c) => c.id === id)).filter(Boolean);
-  return `<div class="bhead"><div><button type="button" class="linkbtn" data-act="bback" style="padding:0 0 6px">‹ All boards</button><div class="dsp n">${esc(b.name)}</div><div class="muted">${esc(b.desc)}</div></div><div class="bacts"><button type="button" class="btn${b.share.on ? ' pri' : ''}" data-act="bshare" data-b="${b.id}">${b.share.on ? 'Shared · manage link' : 'Share board'}</button><button type="button" class="btn" data-act="barchive" data-b="${b.id}">${S.armDelete === 'b' + b.id ? 'Click again to archive' : 'Archive board'}</button></div></div>
+  return `<div class="bhead"><div><button type="button" class="linkbtn" data-act="bback" style="padding:0 0 6px">‹ All boards</button><div class="dsp n">${esc(b.name)}</div><div class="muted">${esc(b.desc)}</div>${b.rules ? `<div class="rules" style="margin-top:8px"><span class="autochip static">⟳ Auto-updating</span> ${rulesText(b.rules)}</div>` : ''}</div><div class="bacts"><button type="button" class="btn${b.share.on ? ' pri' : ''}" data-act="bshare" data-b="${b.id}">${b.share.on ? 'Shared · manage link' : 'Share board'}</button><button type="button" class="btn" data-act="barchive" data-b="${b.id}">${S.armDelete === 'b' + b.id ? 'Click again to archive' : 'Archive board'}</button></div></div>
   ${cs.length ? `<div class="wall">${cs.map((c) => cardHTML(c, `<button type="button" class="rmb" data-act="bremove" data-b="${b.id}" data-id="${c.id}">Remove</button>`)).join('')}</div>` : `<div class="empty"><div class="dsp">Board is empty</div><p>Add creators from their profile or in Casting mode.</p></div>`}`;
 }
 function shareHTML() {
@@ -876,6 +892,9 @@ async function updateBoard(bid, row) { const { data, error } = await sb.from('bo
 /* ---------------------------------------------------------------- image fade-in */
 const markLoaded = (t) => { t.classList.add('ld'); const box = t.closest('.cm,.media-main,.lbs,.mm,.thumbs button,.strip button'); if (box) box.classList.add('ld'); };
 document.addEventListener('load', (e) => { if (e.target.tagName === 'IMG') markLoaded(e.target); }, true);
+// a photo that can't be shown (e.g. still converting) gets a tidy placeholder instead of a broken icon
+const NOIMG = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 150"><rect width="120" height="150" fill="#121917"/><path d="M38 98l16-20 12 14 9-10 15 16z" fill="#2b3a35"/><circle cx="76" cy="58" r="8" fill="#2b3a35"/><text x="60" y="128" fill="#6f7f79" font-family="Montserrat,sans-serif" font-size="9" text-anchor="middle">Photo processing</text></svg>');
+document.addEventListener('error', (e) => { const im = e.target; if (im.tagName === 'IMG' && !im.dataset.fb) { im.dataset.fb = 1; im.src = NOIMG; markLoaded(im); } }, true);
 document.addEventListener('error', (e) => { if (e.target.tagName === 'IMG') markLoaded(e.target); }, true);
 new MutationObserver(() => { document.querySelectorAll('img:not(.ld)').forEach((im) => { if (im.complete && im.naturalWidth) markLoaded(im); }); }).observe(document.body, { childList: true, subtree: true });
 
@@ -949,6 +968,7 @@ document.addEventListener('click', async (e) => {
     case 'lgc': S.showCreators = !S.showCreators; renderMain(); break;
     case 'city': { const d = MAP && MAP.pins.find((p) => p.k === a.dataset.c); if (d) { S.jump = ''; zoomTo([d.cs[0].lng, d.cs[0].lat], 9); } break; }
     case 'shownew': showNew(); break;
+    case 'refresh': requestRefresh(); break;
     case 'toastundo': if (undoFn) { const f = undoFn; undoFn = null; $('toast').hidden = true; f(); } break;
     case 'signout': await sb.auth.signOut(); location.reload(); break;
     case 'setpw': S.pw = true; renderOverlays(); setTimeout(() => $('pw1') && $('pw1').focus(), 50); break;
@@ -1037,6 +1057,17 @@ function showNewPill() {
   p.hidden = false;
 }
 function showNew() { PENDING_NEW = 0; const p = $('newpill'); if (p) p.hidden = true; renderMain(); if (S.view !== 'map') window.scrollTo({ top: 0, behavior: 'smooth' }); }
+// "Refresh now": asks the running sync to go straight away (it checks every ~15 seconds)
+let REFRESH_AT = 0, refreshT = null;
+async function requestRefresh() {
+  if (REFRESH_AT) return;
+  const { error } = await sb.from('sync_requests').insert({});
+  if (error) { toast("Couldn't request a refresh: " + error.message); return; }
+  REFRESH_AT = Date.now(); renderRefresh();
+  clearTimeout(refreshT); refreshT = setTimeout(() => { if (REFRESH_AT) { REFRESH_AT = 0; renderRefresh(); toast('The refresh is taking longer than usual. New applications will still appear automatically.'); } }, 4 * 60 * 1000);
+}
+function renderRefresh() { const b = $('refreshBtn'); if (!b) return; b.disabled = !!REFRESH_AT; b.innerHTML = REFRESH_AT ? '<span class="spinner sm" aria-hidden="true"></span> Refreshing…' : '↻ Refresh now'; }
+function refreshDone(r) { if (!REFRESH_AT || !r || !r.finished_at) return false; if (new Date(r.started_at).getTime() < REFRESH_AT - 20000) return false; REFRESH_AT = 0; clearTimeout(refreshT); renderRefresh(); return true; }
 let syncing = false;
 async function checkSync(row) {
   if (syncing) return; syncing = true;
@@ -1045,7 +1076,8 @@ async function checkSync(row) {
     if (!r) { const { data } = await sb.from('sync_runs').select('*').order('started_at', { ascending: false }).limit(1); r = data && data[0]; }
     if (!r) return;
     const changed = !LAST_SYNC || r.id !== LAST_SYNC.id || r.finished_at !== LAST_SYNC.finished_at; LAST_SYNC = r;
-    if (changed && r.finished_at) applyIncoming(await loadApplications());
+    const asked = refreshDone(r);
+    if (changed && r.finished_at) { const d = await loadApplications(); applyIncoming(d); if (asked && !d.added.length) toast(r.error ? 'Refresh failed: ' + r.error.slice(0, 80) : 'Up to date. No new applications'); }
     renderSync();
   } catch (e) { console.error(e); } finally { syncing = false; }
 }

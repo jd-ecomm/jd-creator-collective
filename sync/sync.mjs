@@ -8,6 +8,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
+import heicConvert from 'heic-convert';
 import { mapSubmission } from './mapping.mjs';
 
 const env = (k, d) => process.env[k] || d;
@@ -71,11 +72,17 @@ async function copyFile(url, destNoExt, isJotform = true) {
 
 // ------------------------------------------------------------- fast photo versions
 // sm: 480x600 card thumbnail, lg: up to 1400px for the profile and viewer. Originals stay untouched.
-const T0 = Date.now();
+let T0 = Date.now();
+// iPhone photos (HEIC) can't be shown in browsers or read by sharp, so convert them to JPEG first
+const isHeic = (buf, path) => /\.(heic|heif)$/i.test(path) || /^ftyp(heic|heix|hevc|heim|heis|mif1|msf1)/.test(buf.subarray(4, 12).toString('latin1'));
 async function makeVariants(path) {
   const { data, error } = await db.storage.from('media').download(path);
   if (error || !data) return null;
-  const buf = Buffer.from(await data.arrayBuffer());
+  let buf = Buffer.from(await data.arrayBuffer());
+  if (isHeic(buf, path)) {
+    try { buf = Buffer.from(await heicConvert({ buffer: buf, format: 'JPEG', quality: 0.9 })); }
+    catch (e) { console.warn('  could not convert iPhone photo', path, e.message); return { failed: true, v: 2 }; }
+  }
   const stem = path.replace(/\.[^./]+$/, '');
   try {
     const base = sharp(buf, { failOn: 'none' }).rotate();
@@ -89,7 +96,7 @@ async function makeVariants(path) {
     return { sm: stem + '.sm.webp', lg: stem + '.lg.webp' };
   } catch (e) {
     console.warn('  could not resize', path, e.message);
-    return { failed: true };
+    return { failed: true, v: 2 };
   }
 }
 async function backfillVariants() {
@@ -100,7 +107,7 @@ async function backfillVariants() {
   for (const tier of [0, 1, 2]) for (const r of rows || []) {
     const v = byId.get(r.submission_id);
     const ps = tier === 0 ? [r.headshot_path] : tier === 1 ? (r.setup_paths || []) : (r.previews || []).map((p) => p.thumb_path);
-    ps.filter((p) => p && !v[p]).forEach((p) => jobs.push([r.submission_id, p]));
+    ps.filter((p) => p && (!v[p] || (v[p].failed && v[p].v !== 2))).forEach((p) => jobs.push([r.submission_id, p]));
   }
   if (!jobs.length) return;
   console.log('Making fast versions of', jobs.length, 'photos');
@@ -228,7 +235,7 @@ async function main() {
     const subs = await allSubmissions();
     stats.fetched = subs.length;
     const [{ data: existing }, { data: tomb }] = await Promise.all([
-      db.from('applications').select('submission_id,answers_hash,media_sources,headshot_path,setup_paths,lat,lng,previews,previews_built_at,post_urls,tiktok_url,instagram_url,youtube_url,portfolio_url'),
+      db.from('applications').select('submission_id,identity,dob,answers_hash,media_sources,headshot_path,setup_paths,lat,lng,previews,previews_built_at,post_urls,tiktok_url,instagram_url,youtube_url,portfolio_url'),
       db.from('deleted_submissions').select('submission_id,purged_at'),
     ]);
     const byId = new Map((existing || []).map((r) => [r.submission_id, r]));
@@ -258,7 +265,14 @@ async function main() {
       const hash = sha(JSON.stringify(sub.answers));
       const prev = byId.get(id);
       const stalePreviews = !prev?.previews_built_at || Date.now() - new Date(prev.previews_built_at) > 30 * 864e5;
-      if (prev && prev.answers_hash === hash && !stalePreviews) continue;
+      if (prev && prev.answers_hash === hash && !stalePreviews) {
+        // one-off fill of gender and date of birth for applicants synced before these were kept
+        if ((row.identity && !prev.identity) || (row.dob && !prev.dob)) {
+          if (!DRY) await db.from('applications').update({ identity: row.identity ?? null, dob: row.dob ?? null, age_band: ageBand(row.dob) }).eq('submission_id', id);
+          stats.updated++;
+        }
+        continue;
+      }
       console.log(`${prev ? 'Updating' : 'Adding'} ${row.full_name || id}`);
 
       // photos: copy each Jotform file once
@@ -281,9 +295,8 @@ async function main() {
       const linksChanged = !prev || JSON.stringify([prev.tiktok_url, prev.instagram_url, prev.youtube_url, prev.post_urls, prev.portfolio_url]) !== JSON.stringify([row.tiktok_url, row.instagram_url, row.youtube_url, row.post_urls, row.portfolio_url]);
       if (linksChanged || stalePreviews) { row.previews = await buildPreviews(row); row.previews_built_at = new Date().toISOString(); }
 
-      // keep less personal data: store only the age band, never the date of birth or identity answer
+      // gender and date of birth are kept (the team filters on them); age band is a convenience copy
       row.age_band = ageBand(row.dob);
-      delete row.dob; delete row.identity;
 
       row.answers_hash = hash;
       row.synced_at = new Date().toISOString();
@@ -309,7 +322,39 @@ async function main() {
   } catch (e) {
     console.error(e);
     if (!DRY && run?.id) await db.from('sync_runs').update({ ...stats, finished_at: new Date().toISOString(), error: String(e.message || e).slice(0, 500) }).eq('id', run.id);
-    process.exit(1);
+    throw e;
   }
 }
-main();
+
+// ------------------------------------------------------------- run loop
+// GitHub's own schedule is unreliable for frequent runs, so one job stays up and syncs on a steady
+// rhythm, and straight away when someone presses "Refresh now" in the CRM.
+// LOOP_MINUTES=0 runs a single sync and exits.
+const LOOP_MINUTES = Number(env('LOOP_MINUTES', '0'));
+const LAUNCH_DAY = env('LAUNCH_DAY', '');
+const vanNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Vancouver' }));
+function intervalMin() {
+  const n = vanNow(); const today = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+  if (LAUNCH_DAY && today === LAUNCH_DAY) return Number(env('LAUNCH_INTERVAL_MIN', '3'));
+  const h = n.getHours(); return h >= 7 && h < 22 ? Number(env('DAY_INTERVAL_MIN', '15')) : 60;
+}
+async function pendingRequests() {
+  const { data, error } = await db.from('sync_requests').select('id').is('handled_at', null).limit(20);
+  return error ? [] : (data || []).map((r) => r.id);
+}
+async function once(reqIds) {
+  T0 = Date.now();
+  try { await main(); } catch (e) { console.error('Sync failed, will try again next cycle'); }
+  if (reqIds?.length && !DRY) await db.from('sync_requests').update({ handled_at: new Date().toISOString() }).in('id', reqIds);
+}
+if (!LOOP_MINUTES) { main().catch(() => process.exit(1)); }
+else {
+  const end = Date.now() + LOOP_MINUTES * 60000;
+  let next = 0;
+  while (Date.now() < end) {
+    const reqs = await pendingRequests();
+    if (reqs.length || Date.now() >= next) { if (reqs.length) console.log('Refresh requested from the CRM'); await once(reqs); next = Date.now() + intervalMin() * 60000; }
+    await sleep(15000);
+  }
+  console.log('Loop finished; the next scheduled run takes over');
+}
