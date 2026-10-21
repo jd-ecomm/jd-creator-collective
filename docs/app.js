@@ -164,8 +164,6 @@ function needs(c) {
   if (cr.status === 'New' && daysAgo(c) > 14) o.push('Waiting 14+ days');
   if (['Reviewed', 'Shortlisted', 'Contacted'].includes(cr.status) && cr.owner === 'Unassigned') o.push('No owner');
   if (['Reviewed', 'Shortlisted', 'Contacted'].includes(cr.status) && stageDays(c.id) > 7) o.push('Stuck 7+ days');
-  if (!c.setups.length) o.push('Missing setup photos');
-  if (!c.posts.length) o.push('No post links');
   if (isSplit(c.id)) o.push('Split opinion');
   return o;
 }
@@ -177,7 +175,8 @@ const GROUPS = [
   { k: 'status', l: 'Status', open: true, opts: () => STATUSES, get: (c) => [CRM[c.id].status] },
   { k: 'gender', l: 'Gender', open: true, opts: () => uniq(C.map((c) => c.gender)).sort((a, b) => (a === 'Not given') - (b === 'Not given') || a.localeCompare(b)), get: (c) => [c.gender] },
   { k: 'age', l: 'Age', open: true, opts: () => ['18 to 20', '21 to 24', '25 to 29', '30 to 34', '35+', 'Not given'], get: (c) => [c.ageBand] },
-  { k: 'needs', l: 'Needs attention', open: false, opts: () => ['Age not confirmed', 'Waiting 14+ days', 'No owner', 'Stuck 7+ days', 'Missing setup photos', 'No post links', 'Split opinion'], get: needs },
+  { k: 'needs', l: 'Needs attention', open: false, opts: () => ['Age not confirmed', 'Waiting 14+ days', 'No owner', 'Stuck 7+ days', 'Split opinion'], get: needs },
+  { k: 'gaps', l: 'Left blank on the form', open: false, sub: 'Optional questions. Not counted as needing attention', opts: () => ['No setup photos', 'No post links', 'No portfolio'], get: (c) => [!c.setups.length && 'No setup photos', !c.posts.length && 'No post links', !c.portfolio && 'No portfolio'].filter(Boolean) },
   { k: 'boards', l: 'Campaign boards', open: false, opts: () => BOARDS.map((b) => b.name), get: (c) => BOARDS.filter((b) => MEMBERS.get(b.id + '|' + c.id)).map((b) => b.name) },
   { k: 'owner', l: 'Owner', open: false, opts: () => uniq(C.map((c) => dispName(CRM[c.id].owner))), get: (c) => [dispName(CRM[c.id].owner)] },
   { k: 'store', l: 'Near a JD store', sub: "Distance from the creator's city to the closest store", open: true, opts: () => ['Within 10 km', '10 to 25 km', '25 to 50 km', 'Over 50 km', 'Location unknown'], get: (c) => [storeBand(c)] },
@@ -195,7 +194,7 @@ const GROUPS = [
   { k: 'brands', l: 'Brand pools', sub: 'Brands they wear or follow', open: false, opts: () => uniq(C.flatMap((c) => c.brands)), get: (c) => c.brands },
   { k: 'rights', l: 'Usage rights', open: false, opts: () => ['Active', 'Expiring within 60 days', 'Expired', 'Not started'], get: (c) => { const r = rights(c); return r ? [r.state] : []; } },
   { k: 'tags', l: 'Team tags', open: false, opts: () => uniq(C.flatMap((c) => CRM[c.id].tags)), get: (c) => CRM[c.id].tags },
-  { k: 'flags', l: 'Flags', open: true, opts: () => ['Favourite', 'Ad-ready', 'Partnership Ads OK', 'JD customer', 'JD employee', 'Worked with JD', 'Has portfolio'], get: (c) => [CRM[c.id].fav && 'Favourite', c.pads && maxAud(c) >= 10000 && 'Ad-ready', c.pads && 'Partnership Ads OK', c.customer && 'JD customer', c.employee && 'JD employee', c.workedJD && 'Worked with JD', c.portfolio && 'Has portfolio'].filter(Boolean) },
+  { k: 'flags', l: 'Flags', open: true, opts: () => ['Favourite', 'Ad-ready', '10k+ followers', 'JD customer', 'JD employee', 'Worked with JD', 'Has portfolio'], get: (c) => [CRM[c.id].fav && 'Favourite', c.pads && 'Ad-ready', maxAud(c) >= 10000 && '10k+ followers', c.customer && 'JD customer', c.employee && 'JD employee', c.workedJD && 'Worked with JD', c.portfolio && 'Has portfolio'].filter(Boolean) },
 ];
 const weekFn = (c) => daysAgo(c) <= 7;
 const PRESETS = [
@@ -203,10 +202,11 @@ const PRESETS = [
   { k: 'fav', l: 'Favourites', f: { flags: ['Favourite'] } },
   { k: 'week', l: 'New this week', f: {}, fn: weekFn },
   { k: 'mine', l: 'Mine', f: {}, fn: (c) => CRM[c.id].owner === ME },
-  { k: 'needs', l: 'Needs attention', warn: 1, t: 'Anyone with at least one issue: age not confirmed, waiting 14+ days in New, no owner or stuck 7+ days once in review, no setup photos, no post links, or a split team score', f: { needs: ['Age not confirmed', 'Waiting 14+ days', 'No owner', 'Stuck 7+ days', 'Missing setup photos', 'No post links', 'Split opinion'] } },
+  { k: 'needs', l: 'Needs attention', warn: 1, t: 'Something the team needs to act on: age not confirmed, waiting 14+ days in New, no owner or stuck 7+ days once in review, or reviewers disagree by 2+ points', f: { needs: ['Age not confirmed', 'Waiting 14+ days', 'No owner', 'Stuck 7+ days', 'Split opinion'] } },
   { k: 'near', l: 'Near a JD store', t: 'City is within 25 km of a JD store', f: { store: ['Within 10 km', '10 to 25 km'] } },
   { k: 'fr', l: 'French-ready', t: 'Creates in both English and French. French-only creators are in the Language filter under French', f: { language: ['French-ready (EN + FR)'] } },
-  { k: 'adr', l: 'Ad-ready', t: 'Said yes to partnership ads AND has 10k+ followers on at least one platform. Partnership Ads OK (in Flags) is the yes answer on its own', f: { flags: ['Ad-ready'] } },
+  { k: 'adr', l: 'Ad-ready', t: 'Approved partnership ads on their application', f: { flags: ['Ad-ready'] } },
+  { k: 'big', l: '10k+ followers', t: '10,000 or more followers on at least one platform', f: { flags: ['10k+ followers'] } },
   { k: 'short', l: 'Shortlisted', f: { status: ['Shortlisted'] } },
 ];
 const S = { view: 'wall', q: '', sort: 'new', f: {}, fn: null, fnLabel: '', cmp: [], open: null, lb: null, cmpOpen: false, cast: null, board: null, share: null, drag: null, openGroups: {}, mapT: null, jump: 'ca', popPinned: null, showStores: true, showCreators: true, otLang: null, otTpl: null, reveal: {}, armDelete: null };
@@ -453,10 +453,10 @@ function drawerHTML(c) {
       <div class="ploc">${esc(c.city)}${c.provName ? ', ' + esc(c.provName) : ''} <span class="muted">· ${esc(c.metro)}</span> ${c.langs.map((l) => `<span class="chip">${esc(l)}</span>`).join('')}</div>
       <div class="badges">
         ${bilingual(c) ? '<span class="bdg lime">French-ready</span>' : ''}
-        ${c.pads && maxAud(c) >= 10000 ? '<span class="bdg lime">Ad-ready</span>' : ''}
+        ${c.pads ? '<span class="bdg lime">Ad-ready</span>' : ''}${maxAud(c) >= 10000 ? '<span class="bdg">10k+ followers</span>' : ''}
         ${c.ageOk ? '<span class="bdg ok">18+ confirmed</span>' : '<span class="bdg warn">18+ not confirmed</span>'}
         ${c.consent ? '<span class="bdg ok">Data consent given</span>' : ''}
-        ${c.pads ? '<span class="bdg ok">Partnership Ads OK</span>' : '<span class="bdg">No Partnership Ads</span>'}
+        ${c.pads ? '' : `<span class="bdg">Partnership ads: ${esc(c.padsRaw || 'not given')}</span>`}
         ${c.customer ? '<span class="bdg">JD customer</span>' : ''}${c.employee ? '<span class="bdg">JD employee</span>' : ''}${c.workedJD ? '<span class="bdg">Worked with JD before</span>' : ''}
         ${needs(c).filter((x) => x !== 'Age not confirmed').map((x) => `<span class="bdg warn">${esc(x)}</span>`).join('')}
       </div>
@@ -504,24 +504,49 @@ function lbHTML() {
 
 /* ---------------------------------------------------------------- compare */
 function cmpHTML() {
-  const cs = S.cmp.map((id) => C.find((c) => c.id === id)).filter(Boolean); const cols = `grid-template-columns:150px repeat(${cs.length},minmax(0,1fr))`;
-  const best = (f, low) => { const v = cs.map(f); const ok = v.filter((x) => x != null && x !== 0 && isFinite(x)); if (!ok.length) return v.map(() => false); const t = low ? Math.min(...ok) : Math.max(...ok); return v.map((x) => x === t); };
-  const row = (l, f, b, low) => { const bb = b ? best(b, low) : []; return `<div class="crow" style="${cols}"><div>${l}</div>${cs.map((c, i) => `<div class="${bb[i] ? 'best' : ''}">${f(c)}</div>`).join('')}</div>`; };
-  const chips = (a) => `<div class="chips">${a.map((x) => `<span class="chip">${esc(x)}</span>`).join('') || '<span class="muted">None</span>'}</div>`;
-  return `<div class="full" role="dialog" aria-modal="true" aria-label="Compare creators"><div class="dh"><span class="dsp" style="font-size:28px">Compare creators</span><button type="button" class="ib" data-act="cmpclose" aria-label="Close">×</button></div><div class="fullb"><div style="overflow-x:auto"><div class="cgrid">
-  <div class="crow chead" style="${cols}"><div></div>${cs.map((c) => `<div><img src="${c.head}" alt="" data-act="open" data-id="${c.id}"><div class="n">${esc(c.name)}</div><div class="muted" style="font-size:11.5px;margin-top:4px">${esc(c.city)}${c.prov ? ', ' + c.prov : ''}</div><div style="margin-top:8px"><button type="button" class="favbtn${CRM[c.id].fav ? ' on' : ''}" data-act="fav" data-id="${c.id}">${STAR(CRM[c.id].fav)} ${CRM[c.id].fav ? 'Favourited' : 'Favourite'}</button></div></div>`).join('')}</div>
-  ${row('Status', (c) => stInline(CRM[c.id].status))}
-  ${row('Team score', (c) => sc1(teamScore(c.id)), (c) => teamScore(c.id))}
-  ${row('Closest JD store', (c) => (c.near[0] ? `${esc(c.near[0].s.name)}<div class="muted">${kmTxt(nd(c))}</div>` : 'Unknown'), (c) => nd(c), true)}
-  ${row('TikTok', (c) => fmt(c.tt), (c) => c.tt)}${row('Instagram', (c) => fmt(c.ig), (c) => c.ig)}${row('YouTube', (c) => fmt(c.yt), (c) => c.yt)}${row('Total reach', (c) => fmt(c.reach), (c) => c.reach)}
-  ${row('Languages', (c) => c.langs.map(esc).join(', '))}${row('On camera', (c) => esc(c.style))}
-  ${row('Content lanes', (c) => chips(c.lanes))}${row('Can do', (c) => chips(c.can))}${row('Equipment', (c) => chips(c.equipment))}${row('Brand pools', (c) => chips(c.brands))}
-  ${row('Partnership Ads', (c) => (c.pads ? 'Yes' : 'No'))}${row('Team tags', (c) => chips(CRM[c.id].tags))}
-  ${row('Setup photos', (c) => (c.setups.length ? `<div class="strip" style="grid-template-columns:repeat(3,1fr)">${c.setups.slice(0, 3).map((s, i) => `<button type="button" data-act="lb" data-id="${c.id}" data-i="${i + 1}"><img src="${s.src}" alt=""></button>`).join('')}</div>` : '<span style="color:var(--warn)">None uploaded</span>'))}
-  </div></div></div></div>`;
+  const cs = S.cmp.map((id) => C.find((c) => c.id === id)).filter(Boolean); const n = cs.length;
+  const cols = `grid-template-columns:168px repeat(${n},minmax(170px,1fr))`;
+  const wins = cs.map(() => 0); let measures = 0;
+  // numeric row with bars; the leader is highlighted and counted
+  const num = (label, get, show, opts = {}) => {
+    const v = cs.map(get); const ok = v.filter((x) => x != null && isFinite(x) && (opts.zeroOk || x !== 0));
+    const top = ok.length ? (opts.low ? Math.min(...ok) : Math.max(...ok)) : null; const max = opts.max || Math.max(1, ...ok);
+    const lead = v.map((x) => top != null && ok.length > 1 && x === top && v.filter((y) => y === top).length < n);
+    if (ok.length > 1) { measures++; lead.forEach((l, i) => l && wins[i]++); }
+    const same = v.every((x) => x === v[0]);
+    return { same, html: `<div class="crow" style="${cols}"><div class="cl">${label}</div>${cs.map((c, i) => { const x = v[i]; const w = x == null || !isFinite(x) ? 0 : opts.low ? Math.max(8, 100 - ((x - Math.min(...ok)) / Math.max(1, Math.max(...ok) - Math.min(...ok))) * 80) : (x / max) * 100;
+      return `<div class="cv${lead[i] ? ' lead' : ''}${x == null ? ' na' : ''}"><div class="cvn num">${x == null ? '–' : show(x, c)}${lead[i] ? '<span class="leadtag">' + (opts.low ? 'Closest' : 'Top') + '</span>' : ''}</div>${x == null ? '' : `<div class="cbar"><i style="width:${Math.max(2, w)}%"></i></div>`}</div>`; }).join('')}</div>` };
+  };
+  const txt = (label, get) => { const v = cs.map(get); return { same: v.every((x) => x === v[0]), html: `<div class="crow" style="${cols}"><div class="cl">${label}</div>${v.map((x) => `<div class="cv">${x}</div>`).join('')}</div>` }; };
+  // list rows: items everyone shares are muted, items only some have stand out
+  const list = (label, get) => { const v = cs.map(get); const all = v.reduce((a, b) => a.filter((x) => b.includes(x)), v[0] || []);
+    return { same: v.every((x) => JSON.stringify([...x].sort()) === JSON.stringify([...v[0]].sort())), html: `<div class="crow" style="${cols}"><div class="cl">${label}${all.length && n > 1 ? '<small>Grey = everyone has it</small>' : ''}</div>${v.map((x) => `<div class="cv"><div class="chips">${x.map((y) => `<span class="chip${all.includes(y) && n > 1 ? ' common' : ' uniq'}">${esc(y)}</span>`).join('') || '<span class="muted">None</span>'}</div></div>`).join('')}</div>` }; };
+  const sec = (title, rows) => { const shown = rows.filter((r) => !(S.cmpDiff && r.same)); return shown.length ? `<div class="csec"><div class="csec-t" style="${cols}"><div>${title}</div></div>${shown.map((r) => r.html).join('')}</div>` : ''; };
+  const yesNo = (b) => (b ? '<span class="yes">Yes</span>' : '<span class="no">No</span>');
+  const reviewers = (c) => Object.keys(CRM[c.id].scores).length;
+  const body = [
+    sec('Audience', [num('TikTok', (c) => c.tt, fmt), num('Instagram', (c) => c.ig, fmt), num('YouTube', (c) => c.yt, fmt), num('Top platform', (c) => maxAud(c) || null, fmt), num('Total reach', (c) => c.reach || null, fmt)]),
+    sec('Team scores', [num('Overall', (c) => teamScore(c.id), (x, c) => sc1(x) + `<small> / 5 · ${reviewers(c)} reviewer${reviewers(c) === 1 ? '' : 's'}</small>`, { max: 5 }), ...CRIT.map(([k, l]) => num(l, (c) => critAvg(c.id, k), (x) => sc1(x), { max: 5 }))]),
+    sec('Fit for JD', [num('Nearest JD store', (c) => (isFinite(nd(c)) ? nd(c) : null), (x, c) => kmTxt(x) + `<small> · ${esc(c.near[0] ? c.near[0].s.name : '')}</small>`, { low: true, zeroOk: true }),
+      txt('Partnership ads', (c) => yesNo(c.pads)), txt('French-ready', (c) => yesNo(bilingual(c))), txt('Languages', (c) => esc(c.langs.join(', ') || 'Not given')),
+      txt('Gender', (c) => esc(c.gender)), txt('Age', (c) => (c.age != null ? c.age : 'Not given')), txt('Worked with JD', (c) => yesNo(c.workedJD)), txt('JD customer', (c) => yesNo(c.customer))]),
+    sec('Content', [list('Content lanes', (c) => c.lanes), list('What they can do', (c) => c.can), txt('On camera', (c) => esc(c.style)), list('Equipment', (c) => c.equipment), list('Editing', (c) => c.software), list('Brand pools', (c) => c.brands)]),
+    sec('In the CRM', [txt('Stage', (c) => stInline(CRM[c.id].status)), txt('Owner', (c) => esc(dispName(CRM[c.id].owner))), list('Boards', (c) => BOARDS.filter((b) => MEMBERS.get(b.id + '|' + c.id)).map((b) => b.name)), list('Team tags', (c) => CRM[c.id].tags), txt('Notes', (c) => CRM[c.id].notes.length || '–'), txt('Applied', (c) => (daysAgo(c) === 0 ? 'Today' : daysAgo(c) + ' days ago')), txt('Posts / setup photos', (c) => `${c.posts.length} / ${c.setups.length}`)]),
+  ].join('');
+  const leader = Math.max(...wins);
+  return `<div class="full" role="dialog" aria-modal="true" aria-label="Compare creators"><div class="dh"><div style="display:flex;gap:14px;align-items:baseline;flex-wrap:wrap"><span class="dsp" style="font-size:30px">Compare creators</span><span class="muted">${n} side by side · lime marks the leader in each row</span></div>
+    <div style="display:flex;gap:8px;align-items:center"><label class="cmpbox"><input type="checkbox" data-act="cmpdiff"${S.cmpDiff ? ' checked' : ''}> Differences only</label><button type="button" class="ib" data-act="cmpclose" aria-label="Close">×</button></div></div>
+  <div class="fullb cmpwrap"><div class="cgrid2" style="min-width:${168 + n * 180}px">
+    <div class="crow chead2" style="${cols}"><div class="cl"></div>${cs.map((c, i) => { const cr = CRM[c.id]; return `<div class="ch">
+      <button type="button" class="chimg" data-act="open" data-id="${c.id}" aria-label="Open ${esc(c.name)}"><img src="${c.head}" alt=""></button>
+      <div class="chb"><button type="button" class="chn dsp" data-act="open" data-id="${c.id}">${esc(c.name)}</button>
+        <div class="chm">${[c.age != null ? c.age : null, c.gender !== 'Not given' ? c.gender : null, c.city].filter(Boolean).map(esc).join(' · ')}</div>
+        <div class="chm"><span class="dot" style="background:${STCOL[cr.status]}"></span>${cr.status}</div>
+        ${measures ? `<div class="wins${wins[i] === leader && leader > 0 ? ' top' : ''}">Leads ${wins[i]} of ${measures}</div>` : ''}
+        <div class="chact"><button type="button" class="favbtn${cr.fav ? ' on' : ''}" data-act="fav" data-id="${c.id}" aria-label="${cr.fav ? 'Remove from' : 'Add to'} favourites">${STAR(cr.fav)}</button><button type="button" class="linkbtn" data-act="cmprm" data-id="${c.id}">Remove</button></div></div></div>`; }).join('')}</div>
+    ${body || '<div class="muted" style="padding:20px">These creators are identical on every row. Untick "Differences only" to see everything.</div>'}
+  </div></div></div>`;
 }
-
-/* ---------------------------------------------------------------- casting */
 function startCast(mode) { const L = mode === 'new' ? C.filter((c) => CRM[c.id].status === 'New').sort((a, b) => a.applied - b.applied) : results(); S.cast = { mode, queue: L.map((c) => c.id), i: 0, hist: [], tally: { yes: 0, maybe: 0, no: 0, skip: 0 }, mi: 0 }; S.open = null; renderOverlays(); }
 function castHTML() {
   const K = S.cast; const n = K.queue.length;
@@ -539,7 +564,7 @@ function castHTML() {
     <div class="pname dsp">${esc(c.name)}</div>
     <div class="pwho">${c.gender !== 'Not given' ? `<span class="whochip">${esc(c.gender)}</span>` : '<span class="whochip na">Gender not given</span>'}${c.age != null ? `<span class="whochip">Age ${c.age}</span>` : '<span class="whochip na">Age not given</span>'}</div>
     <div class="ploc">${esc(c.city)}${c.provName ? ', ' + esc(c.provName) : ''} ${c.langs.map((l) => `<span class="chip">${esc(l)}</span>`).join('')} <span class="muted">· applied ${daysAgo(c)}d ago</span></div>
-    <div class="badges">${bilingual(c) ? '<span class="bdg lime">French-ready</span>' : ''}${c.pads && maxAud(c) >= 10000 ? '<span class="bdg lime">Ad-ready</span>' : ''}${needs(c).filter((x) => !['No owner', 'Stuck 7+ days', 'Waiting 14+ days'].includes(x)).map((x) => `<span class="bdg warn">${esc(x)}</span>`).join('')}</div>
+    <div class="badges">${bilingual(c) ? '<span class="bdg lime">French-ready</span>' : ''}${c.pads ? '<span class="bdg lime">Ad-ready</span>' : ''}${needs(c).filter((x) => !['No owner', 'Stuck 7+ days', 'Waiting 14+ days'].includes(x)).map((x) => `<span class="bdg warn">${esc(x)}</span>`).join('')}</div>
     <div class="pstats" style="margin-top:14px">${[['TikTok', c.tt], ['Instagram', c.ig], ['YouTube', c.yt]].map(([k, v]) => `<div class="pstat${v == null ? ' na' : ''}"><div class="k">${k}</div><div class="v num">${fmt(v)}</div></div>`).join('')}</div>
     <div class="near${nd(c) <= 25 ? ' ok' : ''}" style="margin-top:12px;font-size:13px">${PIN}<span>${c.near[0] ? kmTxt(nd(c)) + ' to JD ' + esc(c.near[0].s.name) + ' · ' + storeLabel(nd(c)) : 'Location unknown'}</span></div>
     ${c.niche ? `<div class="quote" style="margin-top:12px"><div class="q">Niche or edge</div>${esc(c.niche)}</div>` : ''}
@@ -644,7 +669,7 @@ function insightsHTML(L) {
     <div class="panel"><h3>Store coverage gaps</h3><div class="muted" style="font-size:11.5px">Stores with no applicant within 25 km. These are where in-store content is hardest to cast.</div><div class="gaps">${gaps.map((g) => `<div class="gap"><b>JD ${esc(g.name)}</b><span>${esc(g.city)}, ${g.prov}</span></div>`).join('') || '<div class="muted">Every store has an applicant nearby.</div>'}</div></div>
     <div class="panel"><h3>Applicants vs stores by province</h3><div class="tw" style="border:0"><table class="ptab"><thead><tr><th>Province</th><th style="text-align:right">Applicants</th><th style="text-align:right">Stores</th><th style="text-align:right">Per store</th></tr></thead><tbody>${plist.map((x) => `<tr><td>${esc(PROV[x.p] || x.p || 'Unknown')}</td><td class="r">${x.c}</td><td class="r">${x.s}</td><td class="r" style="color:${x.s && x.c / x.s < 0.5 ? 'var(--warn)' : 'var(--fg)'}">${x.s ? (x.c / x.s).toFixed(1) : '–'}</td></tr>`).join('')}</tbody></table></div></div>
     <div class="panel"><h3>Top content lanes</h3>${lanes.map(([l, n]) => `<div class="pbar"><span>${esc(l)}</span><em class="num">${n}</em><span class="track"><i style="width:${(n / lmax) * 100}%"></i></span></div>`).join('') || '<div class="muted">No lanes given yet.</div>'}</div>
-    <div class="panel"><h3>Mix</h3>${[['French-ready (EN + FR)', frR], ['Partnership Ads OK', L.filter((c) => c.pads).length], ['Ad-ready', L.filter((c) => c.pads && maxAud(c) >= 10000).length], ['On TikTok', L.filter((c) => c.tt || c.urls.TikTok).length], ['On Instagram', L.filter((c) => c.ig || c.urls.Instagram).length], ['On YouTube', L.filter((c) => c.yt || c.urls.YouTube).length]].map(([l, n]) => `<div class="pbar"><span>${l}</span><em class="num">${n} · ${Math.round((n / N) * 100)}%</em><span class="track"><i style="width:${(n / N) * 100}%"></i></span></div>`).join('')}</div>
+    <div class="panel"><h3>Mix</h3>${[['French-ready (EN + FR)', frR], ['Ad-ready (partnership ads OK)', L.filter((c) => c.pads).length], ['10k+ followers', L.filter((c) => maxAud(c) >= 10000).length], ['On TikTok', L.filter((c) => c.tt || c.urls.TikTok).length], ['On Instagram', L.filter((c) => c.ig || c.urls.Instagram).length], ['On YouTube', L.filter((c) => c.yt || c.urls.YouTube).length]].map(([l, n]) => `<div class="pbar"><span>${l}</span><em class="num">${n} · ${Math.round((n / N) * 100)}%</em><span class="track"><i style="width:${(n / N) * 100}%"></i></span></div>`).join('')}</div>
   </div>
   <div class="muted" style="font-size:11px">Insights follow the filters you have set.${fCount() || S.q ? ' Clear filters to see the whole applicant pool.' : ''}</div></div>`;
 }
@@ -723,7 +748,7 @@ function initMap(slot) {
   el.addEventListener('wheel', () => { if (!map.scrollZoom.isEnabled()) { const h = $('maphint'); if (h) { h.hidden = false; clearTimeout(MM.hintT); MM.hintT = setTimeout(() => (h.hidden = true), 1500); } } }, { passive: true });
   sizePins();
 }
-function setActive(on) { if (!MM) return; if (on) MM.map.scrollZoom.enable(); else MM.map.scrollZoom.disable(); const b = $('mapbox'); if (b) b.classList.toggle('active', on); }
+function setActive(on) { if (!MM) return; if (on) MM.map.scrollZoom.enable(); else MM.map.scrollZoom.disable(); const b = $('mapbox'); if (b) b.classList.toggle('zoomon', on); }
 document.addEventListener('mousedown', (e) => { if (MM && MM.map.scrollZoom.isEnabled() && !(e.target.closest && e.target.closest('#mapbox'))) setActive(false); });
 function sizePins() { const z = MM.map.getZoom(); MM.el.style.setProperty('--pin', Math.round(30 + Math.max(0, Math.min(z, 12) - 3) * 3.2) + 'px'); MM.el.classList.toggle('near', z >= 10); }
 // dark-recolour the light basemap so it matches the CRM
@@ -993,6 +1018,8 @@ document.addEventListener('click', async (e) => {
     case 'lbprofile': { const sid = S.lb.id; openProfile(sid); break; }
     case 'cmpopen': if (S.cmp.length >= 2) { S.cmpOpen = true; renderOverlays(); } break;
     case 'cmpclose': S.cmpOpen = false; renderOverlays(); break;
+    case 'cmpdiff': S.cmpDiff = !S.cmpDiff; renderOverlays(); break;
+    case 'cmprm': { const i = S.cmp.indexOf(a.dataset.id); if (i >= 0) S.cmp.splice(i, 1); if (S.cmp.length < 2) S.cmpOpen = false; renderOverlays(); renderMain(); renderTray(); break; }
     case 'cmpclear': S.cmp = []; renderMain(); renderTray(); break;
     case 'caston': startCast('new'); break;
     case 'castoff': S.cast = null; renderOverlays(); break;
