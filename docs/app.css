@@ -642,3 +642,13 @@ button.pbar:hover{background:var(--s1)}
 .refreshbtn:hover:not(:disabled){border-color:var(--lime);color:var(--lime)}
 .refreshbtn:disabled{cursor:default;color:var(--lime);border-color:rgba(168,240,76,.45)}
 .spinner.sm{width:12px;height:12px;border-width:2px}
+
+/* ---- board cards v3: fixed-height photo strip, title sits on a solid gradient, text below never overlaps */
+.bcard .mosaic{height:200px;aspect-ratio:auto;grid-template-rows:repeat(2,100px);grid-auto-rows:0;overflow:hidden;position:relative}
+.bcard .mosaic img{height:100px;width:100%;object-fit:cover;object-position:center 25%}
+.bcard .mosaic::after{background:linear-gradient(180deg,rgba(7,11,10,0) 0%,rgba(7,11,10,.15) 35%,rgba(7,11,10,.88) 72%,rgba(7,11,10,.97) 100%)}
+.bcard .mtitle{position:absolute;left:14px;right:14px;bottom:10px;z-index:2;font-size:26px;line-height:.95;color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.8)}
+.bcard .mcount{position:absolute;top:10px;right:10px;z-index:2;background:var(--lime);color:#000;font-weight:800;font-size:12px;border-radius:999px;padding:3px 9px}
+.bcard .bbody{margin-top:0;padding-top:12px}
+.bcard .bbody .d{font-size:12.5px;line-height:1.45;color:var(--fg2)}
+.bcard .bbody .rules{display:none}
