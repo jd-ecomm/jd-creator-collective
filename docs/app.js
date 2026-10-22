@@ -318,6 +318,7 @@ function cardHTML(c, extra) {
       <img src="${c.head}" alt="${esc(c.name)}" loading="lazy" decoding="async">
       ${stPill(cr.status)}
       <button type="button" class="star${cr.fav ? ' on' : ''}" data-act="fav" data-id="${c.id}" aria-label="${cr.fav ? 'Remove from' : 'Add to'} favourites">${STAR(cr.fav)}</button>
+      ${['New', 'Spotlight'].includes(cr.status) ? `<button type="button" class="torch${cr.status === 'Spotlight' ? ' on' : ''}" data-act="spot" data-id="${c.id}" title="${cr.status === 'Spotlight' ? 'Remove from Spotlight' : 'Spotlight: flag for review'}" aria-label="${cr.status === 'Spotlight' ? 'Remove from Spotlight' : 'Add to Spotlight'}">🔦</button>` : ''}
       ${ts != null ? `<span class="scorepill num" title="Team score">${sc1(ts)}</span>` : ''}
       ${extra || ''}
       <div class="shade"></div>
@@ -329,7 +330,7 @@ function cardHTML(c, extra) {
       ${nearLine(c)}
       <div class="tags">${cr.tags.slice(0, 2).map((t) => `<span class="tag team">${esc(t)}</span>`).join('')}${needs(c).slice(0, 1).map((t) => `<span class="tag warn">${esc(t)}</span>`).join('')}${c.lanes.slice(0, cr.tags.length ? 1 : 2).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
       ${reqsFor(c.id).length ? `<div class="rqline">Review requested from ${reqsFor(c.id).map((r) => shortName(r.requested_for)).join(', ')}</div>` : ''}
-      <div class="cfoot"><span>Applied ${daysAgo(c) === 0 ? 'today' : daysAgo(c) + 'd ago'}${cr.notes.length ? ` · <span title="Notes">✎ ${cr.notes.length}</span>` : ''}</span>${['New', 'Spotlight'].includes(cr.status) ? `<button type="button" class="spotbtn${cr.status === 'Spotlight' ? ' on' : ''}" data-act="spot" data-id="${c.id}" title="${cr.status === 'Spotlight' ? 'Remove from Spotlight' : 'Spotlight: flag for review'}">${cr.status === 'Spotlight' ? '◉ Spotlighted' : '◎ Spotlight'}</button>` : ''}<label class="cmpbox"><input type="checkbox" data-act="cmp" data-id="${c.id}" ${S.cmp.includes(c.id) ? 'checked' : ''}> Compare</label></div>
+      <div class="cfoot"><span>Applied ${daysAgo(c) === 0 ? 'today' : daysAgo(c) + 'd ago'}${cr.notes.length ? ` · <span title="Notes">✎ ${cr.notes.length}</span>` : ''}</span><label class="cmpbox"><input type="checkbox" data-act="cmp" data-id="${c.id}" ${S.cmp.includes(c.id) ? 'checked' : ''}> Compare</label></div>
     </div></article>`;
 }
 const PAGE = 48; S.limit = PAGE; let lastSig = '', moreObs = null;

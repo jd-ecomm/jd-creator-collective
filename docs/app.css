@@ -818,3 +818,8 @@ button.pbar:hover{background:var(--s1)}
 .rtri{display:flex;gap:4px;align-items:center;font-size:12px}
 .rtri span{flex:1;color:var(--fg2)}
 .rfoot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+
+/* ---- spotlight torch: tiny icon under the favourite star */
+.torch{position:absolute;top:21px;right:50px;z-index:3;width:28px;height:28px;border-radius:50%;border:0;background:rgba(0,0,0,.5);display:grid;place-items:center;font-size:14px;line-height:1;cursor:pointer;filter:grayscale(1);opacity:.75;transition:opacity .15s,filter .15s,transform .15s}
+.torch:hover{opacity:1;filter:none;transform:scale(1.08)}
+.torch.on{filter:none;opacity:1;background:var(--st-spot);box-shadow:0 0 12px rgba(245,197,66,.6)}
